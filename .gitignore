@@ -1,0 +1,37 @@
+# ── Local machine configuration (contains SDK path & API keys) ────────────────
+local.properties
+
+# ── Gradle build outputs & caches ─────────────────────────────────────────────
+.gradle/
+build/
+**/build/
+
+# ── Android outputs ────────────────────────────────────────────────────────────
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# ── IDE — Android Studio / IntelliJ ───────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+captures/
+.externalNativeBuild/
+.cxx/
+
+# ── Kotlin incremental compilation ────────────────────────────────────────────
+.kotlin/
+
+# ── Demo video files (large binaries, added locally by each dev) ───────────────
+app/src/main/res/raw/*.mp4
+
+# ── Keystore / signing files ───────────────────────────────────────────────────
+*.jks
+*.keystore
+keystore.properties
+
+# ── macOS ────────────────────────────────────────────────────────────────────
+.DS_Store

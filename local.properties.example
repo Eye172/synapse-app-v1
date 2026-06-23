@@ -1,0 +1,12 @@
+## Copy this file to local.properties and fill in your values.
+## local.properties is gitignored — never commit it.
+
+## Android SDK path (required)
+## Windows example:
+sdk.dir=C\:\\Users\\YourName\\AppData\\Local\\Android\\Sdk
+## macOS / Linux example:
+# sdk.dir=/Users/yourname/Library/Android/sdk
+
+## OpenAI API key (required for AI coaching feature)
+## Get yours at https://platform.openai.com/api-keys
+openai.api.key=sk-YOUR_OPENAI_KEY_HERE
