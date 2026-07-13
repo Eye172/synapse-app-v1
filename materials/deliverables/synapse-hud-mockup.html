@@ -1,0 +1,380 @@
+<title>Synapse — Biometric HUD vibe target</title>
+<style>
+  :root{
+    --void:#06070B; --base:#0A0C12; --surface:#10141C;
+    --glass:rgba(20,26,36,.55); --hairline:rgba(200,240,60,.12);
+    --grid:rgba(140,160,190,.10);
+    --acid:#C8F03C; --acid-press:#A9CE2A;
+    --mesh:#21F0DC; --blue:#2E6BFF;
+    --ok:#16E39A; --warn:#FFC24B; --error:#FF3B5C;
+    --hi:#EAF0EC; --mid:#99A2AE; --lo:#5A6472;
+    --mono: ui-monospace,"Cascadia Code","JetBrains Mono",Consolas,"SF Mono",monospace;
+    --sans: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 700px at 80% -10%, rgba(46,107,255,.10), transparent 60%),
+      radial-gradient(900px 600px at 8% 110%, rgba(200,240,60,.06), transparent 55%),
+      var(--void);
+    color:var(--hi); font-family:var(--sans);
+    -webkit-font-smoothing:antialiased; line-height:1.5;
+    padding:clamp(20px,4vw,56px);
+  }
+  .wrap{max-width:1160px;margin:0 auto}
+
+  /* ---------- header ---------- */
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--acid); display:flex; align-items:center; gap:10px; margin:0 0 18px;
+  }
+  .eyebrow::before{content:"";width:7px;height:7px;background:var(--acid);border-radius:50%;
+    box-shadow:0 0 10px var(--acid)}
+  h1{
+    font-family:var(--sans); font-weight:800; letter-spacing:-.02em;
+    font-size:clamp(30px,5vw,52px); line-height:1.02; margin:0 0 14px; text-wrap:balance;
+  }
+  h1 b{color:var(--acid); font-weight:800}
+  .sub{color:var(--mid); max-width:62ch; font-size:15px; margin:0 0 6px}
+  .sub .m{font-family:var(--mono); color:var(--mesh); font-size:13px}
+
+  /* ---------- stage ---------- */
+  .stage{
+    display:flex; gap:48px; align-items:flex-end; justify-content:center;
+    flex-wrap:wrap; margin:44px 0 40px;
+  }
+
+  /* phone shell */
+  .phone{
+    position:relative; width:334px; flex:0 0 auto;
+    border-radius:46px; padding:12px;
+    background:linear-gradient(160deg,#181d27,#0b0e15 60%);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,.04),
+      0 40px 90px -30px rgba(0,0,0,.8),
+      0 0 60px -20px rgba(33,240,220,.15);
+  }
+  .phone.sec{width:250px; opacity:.96; transform:translateY(26px)}
+  .screen{
+    position:relative; border-radius:36px; overflow:hidden; aspect-ratio:9/19.3;
+    background:var(--base);
+  }
+  /* notch */
+  .phone::before{content:"";position:absolute;top:20px;left:50%;transform:translateX(-50%);
+    width:96px;height:22px;background:#05060a;border-radius:0 0 14px 14px;z-index:6}
+
+  /* ---------- live-set camera ---------- */
+  .cam{
+    position:absolute; inset:0;
+    background:
+      radial-gradient(120% 80% at 50% 12%, rgba(20,30,44,.9), transparent 60%),
+      radial-gradient(90% 60% at 50% 118%, rgba(10,14,22,1), transparent 40%),
+      linear-gradient(180deg,#0c1017,#070a10);
+  }
+  .cam .figure{ /* faint body silhouette behind mesh */
+    position:absolute; left:50%; top:46%; transform:translate(-50%,-50%);
+    width:210px; height:360px;
+    background:radial-gradient(50% 46% at 50% 40%, rgba(120,140,170,.14), transparent 70%);
+    filter:blur(6px);
+  }
+  .cam .grid{position:absolute;inset:0;opacity:.5;
+    background-image:linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:26px 26px; mask-image:radial-gradient(80% 70% at 50% 45%,#000,transparent 85%)}
+  .scan{position:absolute;left:0;right:0;height:120px;pointer-events:none;
+    background:linear-gradient(180deg,transparent,rgba(33,240,220,.06),transparent);
+    animation:sweep 4.6s linear infinite}
+  @keyframes sweep{0%{top:-120px}100%{top:100%}}
+
+  /* corner brackets */
+  .brk{position:absolute;width:22px;height:22px;border:1.5px solid rgba(200,240,60,.55);z-index:4}
+  .brk.tl{top:52px;left:14px;border-right:0;border-bottom:0}
+  .brk.tr{top:52px;right:14px;border-left:0;border-bottom:0}
+  .brk.bl{bottom:104px;left:14px;border-right:0;border-top:0}
+  .brk.br{bottom:104px;right:14px;border-left:0;border-top:0}
+
+  /* status strip */
+  .status{position:absolute;top:0;left:0;right:0;z-index:5;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 18px 10px; font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--mid);
+    background:linear-gradient(180deg,rgba(6,7,11,.9),transparent)}
+  .status .brand{color:var(--hi);display:flex;align-items:center;gap:7px;font-weight:600}
+  .status .brand i{width:6px;height:6px;border-radius:50%;background:var(--acid);
+    box-shadow:0 0 8px var(--acid);font-style:normal}
+  .status .ex{color:var(--acid)}
+  .status .link{color:var(--blue);display:flex;align-items:center;gap:6px}
+  .status .link b{display:inline-block;width:14px;height:7px;
+    background:repeating-linear-gradient(90deg,var(--blue) 0 2px,transparent 2px 4px)}
+
+  /* left data rail */
+  .rail{position:absolute;left:14px;top:96px;z-index:5;display:flex;flex-direction:column;gap:14px}
+  .stat{font-family:var(--mono)}
+  .stat .k{font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--lo)}
+  .stat .v{font-size:20px;color:var(--hi);font-variant-numeric:tabular-nums;line-height:1.1}
+  .stat .v u{font-size:10px;color:var(--mid);text-decoration:none;margin-left:2px}
+  .bar{width:58px;height:3px;background:rgba(255,255,255,.1);border-radius:2px;margin-top:4px;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:2px}
+  .stat.good .v{color:var(--ok)} .stat.good .bar i{width:96%;background:var(--ok)}
+  .stat.warnv .v{color:var(--warn)} .stat.warnv .bar i{width:58%;background:var(--warn)}
+  .stat.mesh .v{color:var(--mesh)} .stat.mesh .bar i{width:80%;background:var(--mesh)}
+
+  /* fault chip with leader */
+  .fault{position:absolute;right:16px;top:200px;z-index:6;
+    font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--error);border:1px solid rgba(255,59,92,.5);border-radius:4px;
+    padding:6px 8px;background:rgba(255,59,92,.08);display:flex;align-items:center;gap:6px;
+    box-shadow:0 0 20px -6px var(--error)}
+  .fault::before{content:"";width:5px;height:5px;background:var(--error);border-radius:50%;
+    box-shadow:0 0 8px var(--error);animation:blink 1s steps(1) infinite}
+  @keyframes blink{50%{opacity:.25}}
+
+  /* rep counter */
+  .reps{position:absolute;left:16px;bottom:118px;z-index:5}
+  .reps .n{font-family:var(--sans);font-weight:800;font-size:56px;line-height:.9;color:var(--acid);
+    letter-spacing:-.03em;font-variant-numeric:tabular-nums;text-shadow:0 0 24px rgba(200,240,60,.35)}
+  .reps .l{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--mid)}
+
+  /* coaching pill */
+  .coach{position:absolute;left:14px;right:14px;bottom:78px;z-index:6;
+    background:var(--glass);backdrop-filter:blur(14px);
+    border:1px solid var(--hairline);border-radius:12px;
+    padding:11px 13px;display:flex;align-items:center;gap:10px}
+  .coach svg{flex:0 0 auto}
+  .coach .t{font-family:var(--sans);font-size:13.5px;color:var(--acid);font-weight:600}
+  .coach .t span{color:var(--mid);font-weight:400;font-size:11px;font-family:var(--mono);
+    display:block;letter-spacing:.08em;text-transform:uppercase;margin-top:1px}
+
+  /* controls */
+  .ctrl{position:absolute;left:0;right:0;bottom:0;z-index:6;display:flex;gap:10px;
+    padding:14px 16px 20px;background:linear-gradient(0deg,rgba(6,7,11,.95),transparent)}
+  .ctrl .pause{flex:0 0 auto;width:46px;height:46px;border-radius:12px;
+    border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04);
+    display:grid;place-items:center}
+  .ctrl .pause b{width:4px;height:16px;border-left:3px solid var(--hi);border-right:3px solid var(--hi)}
+  .ctrl .stop{flex:1;height:46px;border-radius:12px;border:0;
+    background:var(--error);color:#12030a;font-family:var(--mono);font-weight:700;
+    font-size:12px;letter-spacing:.18em;text-transform:uppercase;
+    display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 0 30px -8px var(--error)}
+  .ctrl .stop b{width:12px;height:12px;background:#12030a;border-radius:2px}
+
+  /* mesh svg */
+  .mesh{position:absolute;inset:0;z-index:3}
+  .bone{stroke:var(--mesh);stroke-width:2.4;stroke-linecap:round;
+    filter:drop-shadow(0 0 3px var(--mesh))}
+  .bone.err{stroke:var(--error);filter:drop-shadow(0 0 5px var(--error))}
+  .node{fill:var(--mesh);filter:drop-shadow(0 0 4px var(--mesh));animation:pulse 1.3s ease-in-out infinite}
+  .node.err{fill:var(--error);filter:drop-shadow(0 0 6px var(--error))}
+  @keyframes pulse{0%,100%{opacity:.75}50%{opacity:1}}
+
+  /* ---------- secondary: report screen ---------- */
+  .rep-scr{position:absolute;inset:0;background:
+    radial-gradient(120% 60% at 50% -10%,rgba(46,107,255,.18),transparent 60%),var(--base);
+    padding:26px 18px 18px;display:flex;flex-direction:column;gap:14px}
+  .rep-scr .top{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--mid);display:flex;justify-content:space-between;margin-top:6px}
+  .rep-scr h3{font-family:var(--sans);font-weight:800;font-size:19px;margin:2px 0 0;letter-spacing:-.01em}
+  .rep-scr .h-sub{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--lo)}
+  .ring{align-self:center;position:relative;width:132px;height:132px;margin:4px 0}
+  .ring .num{position:absolute;inset:0;display:grid;place-content:center;text-align:center}
+  .ring .num b{font-family:var(--sans);font-weight:800;font-size:38px;color:var(--acid);
+    font-variant-numeric:tabular-nums;line-height:1}
+  .ring .num u{font-family:var(--mono);font-size:8px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--mid);text-decoration:none;display:block;margin-top:3px}
+  .card{background:var(--glass);backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,.06);
+    border-radius:18px;padding:13px 14px;display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;flex-direction:column;gap:5px}
+  .row .lab{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;
+    letter-spacing:.1em;text-transform:uppercase;color:var(--mid)}
+  .row .lab em{font-style:normal}
+  .row .track{height:5px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden}
+  .row .track i{display:block;height:100%;border-radius:3px}
+  .g-ok i{background:var(--ok)} .g-warn i{background:var(--warn)} .g-err i{background:var(--error)}
+  .row .lab .ok{color:var(--ok)} .row .lab .warn{color:var(--warn)} .row .lab .err{color:var(--error)}
+  .quote{font-family:var(--sans);font-size:12.5px;color:var(--hi);line-height:1.45}
+  .quote::before{content:"◭ COACH";font-family:var(--mono);font-size:8px;letter-spacing:.2em;
+    color:var(--acid);display:block;margin-bottom:5px}
+
+  /* ---------- legend ---------- */
+  .legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;
+    border-top:1px solid rgba(255,255,255,.08);padding-top:26px;margin-top:8px}
+  .leg h4{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;
+    color:var(--mid);margin:0 0 12px}
+  .sw{display:flex;align-items:center;gap:10px;margin-bottom:9px;font-size:12.5px;color:var(--mid)}
+  .sw i{width:16px;height:16px;border-radius:4px;flex:0 0 auto;box-shadow:0 0 10px -2px currentColor}
+  .sw code{font-family:var(--mono);font-size:11px;color:var(--lo);margin-left:auto}
+  .sw b{color:var(--hi);font-weight:600}
+  .role{font-size:12.5px;color:var(--mid);margin:0 0 8px;line-height:1.5}
+  .role b{color:var(--hi)}
+  .role .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+  .typ{font-size:12.5px;color:var(--mid);margin:0 0 10px}
+  .typ b{color:var(--hi);display:block;font-size:15px;margin-bottom:1px}
+  .typ.mono b{font-family:var(--mono);letter-spacing:.04em}
+  .foot{color:var(--lo);font-size:12px;font-family:var(--mono);letter-spacing:.04em;
+    margin-top:30px;border-top:1px solid rgba(255,255,255,.06);padding-top:16px}
+
+  @media (prefers-reduced-motion:reduce){
+    .scan,.node,.fault::before{animation:none}
+    .scan{display:none}
+  }
+  @media(max-width:560px){ .phone{width:300px} .phone.sec{display:none} }
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">Synapse · Biometric HUD · frontend vibe target</p>
+  <h1>The cockpit for your <b>body.</b></h1>
+  <p class="sub">The pixel target for Fable&nbsp;5 — the live-set screen it must match, not reinvent.
+    <span class="m">Acid&nbsp;#C8F03C</span> is the app talking. <span class="m" style="color:var(--mesh)">Turquoise&nbsp;#21F0DC</span> is your body.
+    <span class="m" style="color:var(--error)">Red&nbsp;#FF3B5C</span> only ever means danger in the body.</p>
+
+  <div class="stage">
+
+    <!-- ============ MAIN: LIVE SET ============ -->
+    <div class="phone">
+      <div class="screen">
+        <div class="cam">
+          <div class="grid"></div>
+          <div class="figure"></div>
+          <div class="scan"></div>
+
+          <!-- MESH SKELETON (mid-squat, spine faulted) -->
+          <svg class="mesh" viewBox="0 0 300 640" preserveAspectRatio="xMidYMid slice">
+            <!-- limbs (turquoise) -->
+            <line class="bone" x1="112" y1="212" x2="188" y2="212"/><!-- shoulders -->
+            <line class="bone" x1="112" y1="212" x2="94"  y2="286"/><!-- L upper arm -->
+            <line class="bone" x1="94"  y1="286" x2="120" y2="196"/><!-- L forearm to bar -->
+            <line class="bone" x1="188" y1="212" x2="206" y2="286"/><!-- R upper arm -->
+            <line class="bone" x1="206" y1="286" x2="180" y2="196"/><!-- R forearm to bar -->
+            <line class="bone" x1="126" y1="330" x2="174" y2="330"/><!-- hips -->
+            <line class="bone" x1="126" y1="330" x2="112" y2="440"/><!-- L thigh -->
+            <line class="bone" x1="112" y1="440" x2="126" y2="556"/><!-- L shin -->
+            <line class="bone" x1="174" y1="330" x2="188" y2="440"/><!-- R thigh -->
+            <line class="bone" x1="188" y1="440" x2="174" y2="556"/><!-- R shin -->
+            <!-- spine = FAULT (red) -->
+            <path class="bone err" fill="none" d="M150 190 Q158 250 150 330"/>
+            <line class="bone err" x1="112" y1="212" x2="150" y2="190"/>
+            <line class="bone err" x1="188" y1="212" x2="150" y2="190"/>
+            <!-- nodes -->
+            <circle class="node" cx="150" cy="150" r="10"/><!-- head -->
+            <circle class="node" cx="112" cy="212" r="6"/>
+            <circle class="node" cx="188" cy="212" r="6"/>
+            <circle class="node" cx="94"  cy="286" r="5"/>
+            <circle class="node" cx="206" cy="286" r="5"/>
+            <circle class="node" cx="120" cy="196" r="4"/>
+            <circle class="node" cx="180" cy="196" r="4"/>
+            <circle class="node" cx="126" cy="330" r="6"/>
+            <circle class="node" cx="174" cy="330" r="6"/>
+            <circle class="node" cx="112" cy="440" r="6"/>
+            <circle class="node" cx="188" cy="440" r="6"/>
+            <circle class="node" cx="126" cy="556" r="5"/>
+            <circle class="node" cx="174" cy="556" r="5"/>
+            <circle class="node err" cx="150" cy="190" r="6"/><!-- neck (fault) -->
+            <circle class="node err" cx="153" cy="262" r="6"/><!-- mid-spine (fault) -->
+          </svg>
+
+          <span class="brk tl"></span><span class="brk tr"></span>
+          <span class="brk bl"></span><span class="brk br"></span>
+
+          <!-- status strip -->
+          <div class="status">
+            <span class="brand"><i></i>SYNAPSE</span>
+            <span class="ex">Back Squat</span>
+            <span class="link"><b></b>Mesh·Sim·30Hz</span>
+          </div>
+
+          <!-- data rail -->
+          <div class="rail">
+            <div class="stat warnv"><div class="k">Depth</div><div class="v">92<u>°</u></div><div class="bar"><i></i></div></div>
+            <div class="stat mesh"><div class="k">Tempo</div><div class="v">3·1·1</div><div class="bar"><i></i></div></div>
+            <div class="stat good"><div class="k">Symmetry</div><div class="v">96<u>%</u></div><div class="bar"><i></i></div></div>
+          </div>
+
+          <!-- fault chip -->
+          <div class="fault">Spine · Rounding</div>
+
+          <!-- rep counter -->
+          <div class="reps"><div class="n">07</div><div class="l">Clean reps</div></div>
+
+          <!-- coaching pill -->
+          <div class="coach">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M4 9v6h4l5 4V5L8 9H4z" fill="#C8F03C"/>
+              <path d="M16 8a5 5 0 010 8M18.5 5.5a9 9 0 010 13" stroke="#C8F03C" stroke-width="1.6" stroke-linecap="round"/>
+            </svg>
+            <div class="t">Chest up. Stop the round.<span>Priority · spine risk</span></div>
+          </div>
+
+          <!-- controls -->
+          <div class="ctrl">
+            <div class="pause"><b></b></div>
+            <button class="stop"><b></b>End set</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SECONDARY: REPORT ============ -->
+    <div class="phone sec">
+      <div class="screen">
+        <div class="rep-scr">
+          <div class="top"><span>Set Report</span><span>04:12</span></div>
+          <div>
+            <div class="h-sub">Back Squat · 8 reps</div>
+            <h3>Solid, watch the spine.</h3>
+          </div>
+          <div class="ring">
+            <svg viewBox="0 0 120 120" width="132" height="132">
+              <circle cx="60" cy="60" r="52" fill="none" stroke="rgba(255,255,255,.08)" stroke-width="8"/>
+              <circle cx="60" cy="60" r="52" fill="none" stroke="#C8F03C" stroke-width="8"
+                stroke-linecap="round" stroke-dasharray="327" stroke-dashoffset="59"
+                transform="rotate(-90 60 60)" style="filter:drop-shadow(0 0 6px rgba(200,240,60,.5))"/>
+            </svg>
+            <div class="num"><b>82</b><u>Technique</u></div>
+          </div>
+          <div class="card">
+            <div class="row g-ok"><div class="lab"><span>Knee tracking</span><em class="ok">Clean</em></div><div class="track"><i style="width:94%"></i></div></div>
+            <div class="row g-warn"><div class="lab"><span>Depth</span><em class="warn">2 short</em></div><div class="track"><i style="width:66%"></i></div></div>
+            <div class="row g-err"><div class="lab"><span>Neutral spine</span><em class="err">Rep 3, 6</em></div><div class="track"><i style="width:40%"></i></div></div>
+          </div>
+          <div class="card">
+            <p class="quote">Your knees tracked well and depth was close. The spine rounded on reps 3 and 6 under fatigue — drop the load 5% and brace before you descend. That's the one thing to fix next.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ LEGEND / TOKENS ============ -->
+  <div class="legend">
+    <div class="leg">
+      <h4>Palette</h4>
+      <div class="sw"><i style="background:var(--void);color:#222"></i><b>Void</b><code>#06070B</code></div>
+      <div class="sw"><i style="background:var(--acid);color:var(--acid)"></i><b>Acid — brand / action</b><code>#C8F03C</code></div>
+      <div class="sw"><i style="background:var(--mesh);color:var(--mesh)"></i><b>Mesh — the body</b><code>#21F0DC</code></div>
+      <div class="sw"><i style="background:var(--error);color:var(--error)"></i><b>Error — danger only</b><code>#FF3B5C</code></div>
+      <div class="sw"><i style="background:var(--warn);color:var(--warn)"></i><b>Warn — drifting</b><code>#FFC24B</code></div>
+      <div class="sw"><i style="background:var(--blue);color:var(--blue)"></i><b>Blue — data accent</b><code>#2E6BFF</code></div>
+    </div>
+    <div class="leg">
+      <h4>Accent discipline</h4>
+      <p class="role"><span class="dot" style="background:var(--acid)"></span><b>Acid</b> = the app talking to you. CTAs, active tab, brand, "you're good."</p>
+      <p class="role"><span class="dot" style="background:var(--mesh)"></span><b>Turquoise</b> = your body. The Mesh nodes and bones, nothing else.</p>
+      <p class="role"><span class="dot" style="background:var(--error)"></span><b>Red</b> = danger inside your body. Never a border, never decoration. Keep it sacred so it means something under load.</p>
+    </div>
+    <div class="leg">
+      <h4>Type roles</h4>
+      <p class="typ"><b>Display — bold grotesque</b>Chakra Petch in-app · tight, uppercase HUD headers &amp; the big rep count.</p>
+      <p class="typ"><b>Body — Space Grotesk</b>Coaching lines, report prose, calm glass surfaces.</p>
+      <p class="typ mono"><b>MONO · JETBRAINS</b>Every micro-label, readout &amp; live datum. Uppercase, +0.12em, tabular.</p>
+    </div>
+    <div class="leg">
+      <h4>Two radius languages</h4>
+      <p class="role"><b>Sharp HUD frames</b> (radius 4–6) + corner brackets for anything live or technical — the camera cockpit.</p>
+      <p class="role"><b>Soft glass cards</b> (radius 18–20) for the calm side between sets — reports, home, progress.</p>
+      <p class="role" style="color:var(--lo)">Dark-only, by design: this is a training HUD, not a document. No light theme.</p>
+    </div>
+  </div>
+
+  <p class="foot">// Hand this file to Fable 5 alongside §2.2 of the Master Brief. Instruction: "Match this screen's density, hierarchy, and restraint — then apply the same system to every other screen." Reference boards: materials/images/references/0001–0003.png</p>
+</div>

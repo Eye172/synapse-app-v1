@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# expo / metro output
+.expo/
+dist/
+web-build/
+*.log
+
+# the partial gradle copy in materials is build junk, not source
+materials/base/android/
+
+# machine-local tooling
+.claude/
+.DS_Store
+export_log.txt

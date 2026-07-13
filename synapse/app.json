@@ -1,0 +1,61 @@
+{
+  "expo": {
+    "name": "Synapse",
+    "slug": "synapse",
+    "version": "1.0.0",
+    "scheme": "synapse",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#06070B",
+    "primaryColor": "#C8F03C",
+    "android": {
+      "package": "com.synapse.rig",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#06070B"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.VIBRATE",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_WIFI_STATE"
+      ],
+      "blockedPermissions": ["android.permission.RECORD_AUDIO"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Synapse uses the camera to draw your live form Mesh. Frames are processed on this device only and are never stored or uploaded.",
+          "recordAudioAndroid": false
+        }
+      ],
+      "expo-video",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#06070B",
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 160
+        }
+      ]
+    ],
+    "extra": {
+      "rig": {
+        "udpPort": 1234,
+        "hotspotSsid": "Synapse"
+      }
+    }
+  }
+}

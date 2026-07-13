@@ -1,0 +1,283 @@
+import { useRouter } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
+import { ScrollView, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import { buzz } from '@/src/coach/haptics';
+import type { SensorFrame } from '@/src/engine/types';
+import { rigLink, calibrateNeutral } from '@/src/sources/udp/rigLink';
+import { RIG_UDP_PORT } from '@/src/sources/udp/UdpSensorSource';
+import { useConnectionStore } from '@/src/store/connectionStore';
+import { useSettingsStore } from '@/src/store/settingsStore';
+import { color, space } from '@/src/theme/tokens';
+import { AppText } from '@/src/ui/AppText';
+import { Chip } from '@/src/ui/Chip';
+import { GlassCard } from '@/src/ui/GlassCard';
+import { GridBackdrop } from '@/src/ui/GridBackdrop';
+import { HUDFrame, hudTint } from '@/src/ui/HUDFrame';
+import { PressableScale } from '@/src/ui/PressableScale';
+import { PrimaryButton } from '@/src/ui/PrimaryButton';
+import { StatReadout } from '@/src/ui/StatReadout';
+
+type WizardStep = 'unavailable' | 'searching' | 'found' | 'calibrating' | 'linked';
+
+/**
+ * Connect wizard (§2.4-A, §2.9): the phone opens a hotspot named "Synapse",
+ * the Rig's nodes join it and stream UDP to :1234. SEARCHING → NODES FOUND →
+ * CALIBRATE → LINKED, with Demo Mode always one tap away.
+ */
+export default function ConnectScreen() {
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const mode = useConnectionStore((s) => s.mode);
+  const nodeCount = useConnectionStore((s) => s.nodeCount);
+  const hz = useConnectionStore((s) => s.hz);
+  const battery = useConnectionStore((s) => s.battery);
+  const offsets = useSettingsStore((s) => s.rigZeroOffsets);
+
+  const [step, setStep] = useState<WizardStep>('searching');
+  const [liveAngle, setLiveAngle] = useState<number | null>(null);
+  const [alertFlag, setAlertFlag] = useState(false);
+  const [calProgress, setCalProgress] = useState(0);
+  const [calError, setCalError] = useState<string | null>(null);
+  const calibrated = offsets.spine !== undefined;
+  const unsubRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    if (!rigLink.available()) {
+      setStep('unavailable');
+      return undefined;
+    }
+    const src = rigLink.start();
+    if (!src) {
+      setStep('unavailable');
+      return undefined;
+    }
+    unsubRef.current = src.onFrame((f: SensorFrame) => {
+      const spine = f.nodes.find((n) => n.id === 'spine');
+      setLiveAngle(spine?.angleDeg ?? null);
+      setAlertFlag(f.flags.alert === true);
+    });
+    return () => {
+      unsubRef.current?.();
+      unsubRef.current = null;
+      // keep the link itself alive if it made it to LINKED — the chip stays truthful
+      if (useConnectionStore.getState().mode !== 'linked') {
+        rigLink.stop();
+      }
+    };
+  }, []);
+
+  // step follows the real link state
+  useEffect(() => {
+    if (step === 'unavailable' || step === 'calibrating') return;
+    if (mode === 'linked') setStep(calibrated ? 'linked' : 'found');
+    else if (mode === 'searching') setStep('searching');
+  }, [mode, calibrated, step]);
+
+  const startCalibration = async () => {
+    const src = rigLink.active;
+    if (!src) return;
+    setStep('calibrating');
+    setCalError(null);
+    setCalProgress(0);
+    const res = await calibrateNeutral(src, {
+      onProgress: (p, angle) => {
+        setCalProgress(p);
+        if (angle !== null) setLiveAngle(angle);
+      },
+    });
+    if (res.ok) {
+      buzz('lock');
+      setStep('linked');
+    } else {
+      setCalError('Not enough frames — is the Rig still streaming?');
+      setStep('found');
+    }
+  };
+
+  const stepIndex = { unavailable: 0, searching: 1, found: 2, calibrating: 3, linked: 4 }[step];
+
+  return (
+    <View style={{ flex: 1 }}>
+      <GridBackdrop grid={false} />
+      <ScrollView
+        contentContainerStyle={{ padding: space.gutter, paddingTop: insets.top + space.md, gap: space.sm, paddingBottom: 40 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <AppText variant="nano" color={color.acid}>
+            · RIG LINK ·
+          </AppText>
+          <Chip
+            label={mode.toUpperCase()}
+            tint={mode === 'linked' ? color.acid : mode === 'searching' ? color.warn : color.blue}
+          />
+        </View>
+        <AppText variant="h1">Connect the Rig</AppText>
+
+        {/* step rail */}
+        <View style={{ flexDirection: 'row', gap: 6, marginVertical: 2 }}>
+          {(['SEARCH', 'NODES', 'CALIBRATE', 'LINKED'] as const).map((label, i) => {
+            const active = stepIndex >= i + 1;
+            return (
+              <View key={label} style={{ flex: 1, gap: 4 }}>
+                <View style={{ height: 3, borderRadius: 2, backgroundColor: active ? color.acid : 'rgba(255,255,255,0.10)' }} />
+                <AppText variant="nano" color={active ? color.acid : color.textLo}>
+                  {label}
+                </AppText>
+              </View>
+            );
+          })}
+        </View>
+
+        {step === 'unavailable' ? (
+          <>
+            <HUDFrame tint={hudTint.blue} style={{ gap: 8 }}>
+              <AppText variant="nano" color={color.blue}>
+                · UDP LINK NEEDS THE DEV BUILD ·
+              </AppText>
+              <AppText variant="body">
+                The Rig speaks raw UDP, which this runtime can’t open (Expo Go and the web preview have no socket
+                access). Install the development build on your phone and this wizard lights up for real.
+              </AppText>
+              <AppText variant="monoBody" color={color.textLo}>
+                {`npx expo run:android  →  rig streams to :${RIG_UDP_PORT}`}
+              </AppText>
+            </HUDFrame>
+            <PrimaryButton title="Use demo mode" sub="EVERYTHING WORKS WITHOUT THE RIG" onPress={() => router.back()} />
+          </>
+        ) : (
+          <>
+            <HUDFrame tint={step === 'linked' ? hudTint.acid : hudTint.mesh} style={{ gap: 12 }}>
+              <AppText variant="nano" color={color.textLo}>
+                LIVE LINK · UDP :{RIG_UDP_PORT}
+              </AppText>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                <StatReadout k="NODES" v={String(nodeCount)} tint={nodeCount > 0 ? color.acid : color.textLo} />
+                <StatReadout k="RATE" v={hz > 0 ? String(hz) : '—'} unit={hz > 0 ? 'HZ' : undefined} tint={color.mesh} />
+                <StatReadout
+                  k="SPINE"
+                  v={liveAngle === null ? '—' : liveAngle.toFixed(0)}
+                  unit={liveAngle === null ? undefined : '°'}
+                  tint={alertFlag ? color.error : color.mesh}
+                />
+                <StatReadout k="BATT" v={battery === null ? '—' : String(battery)} unit={battery === null ? undefined : '%'} tint={color.textHi} />
+              </View>
+              {alertFlag ? (
+                <AppText variant="nano" color={color.error}>
+                  ⚠ RIG ALERT FLAG RAISED — FIRMWARE SEES A BAD ANGLE
+                </AppText>
+              ) : null}
+            </HUDFrame>
+
+            {step === 'searching' ? (
+              <GlassCard style={{ gap: 8 }}>
+                <AppText variant="nano" color={color.warn}>
+                  SEARCHING — WAITING FOR THE FIRST PACKET
+                </AppText>
+                <AppText variant="body">
+                  1 · Open your phone’s hotspot and name it <AppText variant="bodySemi">Synapse</AppText>.{'\n'}
+                  2 · Power the Rig. Its node joins the hotspot and streams here automatically.{'\n'}
+                  3 · Nothing to pair, nothing leaves the phone.
+                </AppText>
+                <AppText variant="nano" color={color.warn}>
+                  TIP · SET A STRONG HOTSPOT PASSWORD — THE DEFAULT FIRMWARE ONE IS WEAK
+                </AppText>
+              </GlassCard>
+            ) : null}
+
+            {step === 'found' ? (
+              <GlassCard style={{ gap: 8 }}>
+                <AppText variant="nano" color={color.acid}>
+                  NODES FOUND ({nodeCount})
+                </AppText>
+                <AppText variant="body">
+                  The Rig is streaming. Now zero it: stand tall and neutral — bar down, back straight — and hold for
+                  three seconds.
+                </AppText>
+                {calError ? (
+                  <AppText variant="nano" color={color.error}>
+                    {calError.toUpperCase()}
+                  </AppText>
+                ) : null}
+                <PrimaryButton title="Calibrate" sub="HOLD NEUTRAL · 3S" onPress={startCalibration} />
+              </GlassCard>
+            ) : null}
+
+            {step === 'calibrating' ? (
+              <GlassCard style={{ gap: 10, alignItems: 'center', paddingVertical: space.lg }}>
+                <AppText variant="nano" color={color.mesh}>
+                  CALIBRATING — HOLD STILL
+                </AppText>
+                <AppText variant="display" color={color.mesh} style={{ fontSize: 36, lineHeight: 40 }}>
+                  {`${Math.round(calProgress * 100)}%`}
+                </AppText>
+                <View style={{ width: '80%', height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                  <View style={{ width: `${calProgress * 100}%`, height: 4, backgroundColor: color.mesh }} />
+                </View>
+              </GlassCard>
+            ) : null}
+
+            {step === 'linked' ? (
+              <GlassCard style={{ gap: 8 }}>
+                <AppText variant="nano" color={color.acid}>
+                  LINKED · CALIBRATED
+                </AppText>
+                <AppText variant="body">
+                  Neutral reference locked{offsets.spine !== undefined ? ` (offset ${offsets.spine.toFixed(1)}°)` : ''}. The
+                  Rig’s spine angle now grades your lifts wherever its node reaches; the camera Mesh covers the rest.
+                </AppText>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 1 }}>
+                    <PrimaryButton title="Done" compact onPress={() => router.back()} />
+                  </View>
+                  <PressableScale
+                    onPress={startCalibration}
+                    accessibilityRole="button"
+                    accessibilityLabel="Re-calibrate"
+                    style={{ flex: 1, justifyContent: 'center' }}
+                  >
+                    <View
+                      style={{
+                        paddingVertical: 12,
+                        borderRadius: 10,
+                        borderWidth: 1,
+                        borderColor: 'rgba(255,255,255,0.14)',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <AppText variant="bodySemi" color={color.textMid}>
+                        RE-CALIBRATE
+                      </AppText>
+                    </View>
+                  </PressableScale>
+                </View>
+                <PressableScale
+                  onPress={() => {
+                    rigLink.stop();
+                    router.back();
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Disconnect rig"
+                >
+                  <AppText variant="micro" color={color.textLo} align="center" style={{ paddingVertical: 6 }}>
+                    DISCONNECT
+                  </AppText>
+                </PressableScale>
+              </GlassCard>
+            ) : null}
+
+            {step !== 'linked' ? (
+              <PressableScale onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Skip — use demo mode">
+                <AppText variant="micro" color={color.textMid} align="center" style={{ paddingVertical: 8 }}>
+                  SKIP — USE DEMO MODE
+                </AppText>
+              </PressableScale>
+            ) : null}
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
