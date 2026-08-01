@@ -46,50 +46,61 @@ export default function LibraryScreen() {
     });
   }, [query, filter]);
 
+  /**
+   * A catalogue row, not a card. The risk-3 lifts earn a red edge; everything
+   * else is separated by a hairline, so the eye reads a list of lifts rather
+   * than a wall of identical panels.
+   */
   const renderItem = ({ item }: { item: ExerciseSpec }) => (
     <PressableScale
       onPress={() => router.push({ pathname: '/exercise/[id]', params: { id: item.id } })}
       accessibilityRole="button"
       accessibilityLabel={`${item.name}, risk level ${item.riskLevel}`}
-      style={{ paddingHorizontal: space.gutter, marginBottom: space.sm }}
+      style={{ paddingHorizontal: space.gutter }}
     >
-      <GlassCard
+      <View
         style={{
           flexDirection: 'row',
           alignItems: 'center',
           gap: space.md,
-          borderColor: item.riskLevel === 3 ? 'rgba(255,59,92,0.28)' : color.hairlineDim,
+          paddingVertical: space.sm,
+          borderTopWidth: 1,
+          borderTopColor: 'rgba(255,255,255,0.05)',
         }}
       >
         <View
           style={{
-            width: 76,
-            height: 76,
-            borderRadius: 12,
-            backgroundColor: 'rgba(33,240,220,0.05)',
-            borderWidth: 1,
-            borderColor: 'rgba(33,240,220,0.14)',
+            width: 72,
+            height: 72,
+            backgroundColor: 'rgba(33,240,220,0.03)',
+            borderLeftWidth: 2,
+            borderLeftColor: item.riskLevel === 3 ? color.error : color.mesh,
             alignItems: 'center',
             justifyContent: 'center',
           }}
         >
-          <MiniMesh exercise={item} size={68} />
+          <MiniMesh exercise={item} size={64} />
         </View>
-        <View style={{ flex: 1, gap: 5 }}>
+        <View style={{ flex: 1, gap: 4 }}>
           <AppText variant="h3">{item.name}</AppText>
-          <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-            <Chip label={item.category.toUpperCase()} tint={color.blue} />
-            <RiskBadge level={item.riskLevel} />
-            {item.hasRigRules ? <Chip label="RIG" tint={color.mesh} /> : null}
-          </View>
           <AppText variant="nano" color={color.textLo}>
-            {`WATCHES · ${item.lesson.watchList.slice(0, 2).join(' · ').toUpperCase()}`}
+            {item.lesson.watchList.slice(0, 3).join('   ').toUpperCase()}
           </AppText>
+          <View style={{ flexDirection: 'row', gap: 10, alignItems: 'center', marginTop: 2 }}>
+            <AppText variant="nano" color={item.riskLevel === 3 ? color.error : color.textMid}>
+              {`RISK ${item.riskLevel}`}
+            </AppText>
+            <AppText variant="nano" color={color.textLo}>
+              {item.category.toUpperCase()}
+            </AppText>
+            {item.hasRigRules ? (
+              <AppText variant="nano" color={color.mesh}>
+                RIG
+              </AppText>
+            ) : null}
+          </View>
         </View>
-        <AppText variant="h2" color={color.textLo}>
-          ›
-        </AppText>
-      </GlassCard>
+      </View>
     </PressableScale>
   );
 

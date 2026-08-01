@@ -61,7 +61,7 @@ function KitSection({ onConnect }: { onConnect: () => void }) {
   const rigName = useConnectionStore((s) => s.rigName);
   const mode = useConnectionStore((s) => s.mode);
   const battery = useConnectionStore((s) => s.battery);
-  const offsets = useSettingsStore((s) => s.rigZeroOffsets);
+  const calNodes = useSettingsStore((s) => Object.keys(s.rigCalibration).length);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(rigName);
 
@@ -115,8 +115,8 @@ function KitSection({ onConnect }: { onConnect: () => void }) {
             <Chip label={`BATT · ${battery === null ? '—' : `${battery}%`}`} tint={battery !== null && battery < 20 ? color.warn : color.textMid} />
             <Chip label="FIRMWARE · V0 UDP" tint={color.textMid} />
             <Chip
-              label={offsets.spine !== undefined ? `CALIBRATED · ${offsets.spine.toFixed(1)}°` : 'NOT CALIBRATED'}
-              tint={offsets.spine !== undefined ? color.mesh : color.textLo}
+              label={calNodes > 0 ? `CALIBRATED · ${calNodes} NODES` : 'NOT CALIBRATED'}
+              tint={calNodes > 0 ? color.mesh : color.textLo}
             />
           </View>
           <PressableScale onPress={onConnect} accessibilityRole="button" accessibilityLabel="Open connect and calibration">

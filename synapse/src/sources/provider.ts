@@ -1,12 +1,13 @@
+import { RigCalibration } from '@/src/engine/rigBody';
 import type { ExerciseSpec, PoseFrame } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
-import { useSettingsStore } from '@/src/store/settingsStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
 import { SimPoseSource } from './sim/SimPoseSource';
 import { SimSensorSource } from './sim/SimSensorSource';
 import { SimTimeline, defaultFaultScript, type FaultScript } from './sim/simTimeline';
-import { rigLink } from './udp/rigLink';
+import { RigPoseSource } from './udp/RigPoseSource';
+import { rigLink, storedCalibration } from './udp/rigLink';
 import { Emitter, type PoseSource, type SensorSource, type SourceStatus, type Unsubscribe } from './types';
 
 /**
@@ -20,10 +21,12 @@ export interface SourceBundle {
   sensor: SensorSource | null;
   /** false when the sensor is the app-shared Rig link — the set must not stop it */
   ownsSensor: boolean;
-  /** per-node zero offsets to hand the engine's fusion (§2.9 calibration) */
-  calibration: Record<string, number>;
-  /** true when the pose really comes from a camera */
+  /** neutral-stance reference for the Rig's IMUs (§2.9 calibration) */
+  calibration: RigCalibration;
+  /** true when the body being drawn is the user's, not the simulator's */
   poseIsReal: boolean;
+  /** what is actually drawing the Mesh, for the HUD status strip */
+  poseOrigin: 'sim' | 'camera' | 'rig';
   /** rebase the sim timeline so the set starts at rep zero */
   startSet(): void;
   dispose(): void;
@@ -125,17 +128,31 @@ export function createSetSources(
   const simPose = new SimPoseSource(timeline);
   const simSensor = new SimSensorSource(timeline);
 
+  // A linked Rig is the primary instrument: five IMUs place the whole body,
+  // so it both grades and draws. The sim Rig may only accompany the sim body —
+  // scripted angles under a real person would fabricate their metrics
+  // (deal-breaker 2).
+  const rigLive = !opts.forceDemo && useConnectionStore.getState().mode === 'linked' ? rigLink.active : null;
+  const calibration = rigLive ? storedCalibration() : new RigCalibration();
+
   const cameraViable = !opts.forceDemo && opts.camGranted && CameraPoseSource.available();
 
-  const pose: PoseSource = cameraViable
-    ? new FallbackPoseSource(new CameraPoseSource({ hasCameraPermission: opts.camGranted }), simPose)
-    : simPose;
+  let pose: PoseSource;
+  let poseOrigin: SourceBundle['poseOrigin'];
+  let rigPose: RigPoseSource | null = null;
+  if (rigLive) {
+    // the exoskeleton draws its own body; the simulator stands by if it stalls
+    rigPose = new RigPoseSource(rigLive, calibration);
+    pose = new FallbackPoseSource(rigPose, simPose);
+    poseOrigin = 'rig';
+  } else if (cameraViable) {
+    pose = new FallbackPoseSource(new CameraPoseSource({ hasCameraPermission: opts.camGranted }), simPose);
+    poseOrigin = 'camera';
+  } else {
+    pose = simPose;
+    poseOrigin = 'sim';
+  }
 
-  // Sensor priority (§2.6): a real LINKED Rig is authoritative wherever its
-  // nodes reach. The sim Rig may only accompany the sim body — feeding
-  // scripted spine angles under a REAL person's pose would fabricate their
-  // metrics (deal-breaker 2). No Rig + real pose ⇒ pose-only grading.
-  const rigLive = !opts.forceDemo && useConnectionStore.getState().mode === 'linked' ? rigLink.active : null;
   const sensor: SensorSource | null = rigLive ?? (cameraViable ? null : simSensor);
   const ownsSensor = rigLive === null;
 
@@ -143,14 +160,16 @@ export function createSetSources(
     pose,
     sensor,
     ownsSensor,
-    calibration: rigLive ? { ...useSettingsStore.getState().rigZeroOffsets } : {},
-    poseIsReal: cameraViable,
+    calibration,
+    poseIsReal: rigLive !== null || cameraViable,
+    poseOrigin,
     startSet() {
       // rep zero starts a beat after the live screen mounts
       timeline.rebase(Date.now() + 400);
     },
     dispose() {
       pose.stop();
+      rigPose?.stop();
       simPose.stop();
       simSensor.stop();
       // the shared Rig link outlives the set on purpose

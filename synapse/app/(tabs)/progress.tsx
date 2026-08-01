@@ -15,6 +15,7 @@ import { GridBackdrop } from '@/src/ui/GridBackdrop';
 import { HUDFrame, hudTint } from '@/src/ui/HUDFrame';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { ScreenHeader } from '@/src/ui/ScreenHeader';
+import { Metric, Section } from '@/src/ui/Section';
 import { SeverityRing } from '@/src/ui/SeverityRing';
 import { StatReadout } from '@/src/ui/StatReadout';
 import { TrendChart } from '@/src/ui/TrendChart';
@@ -80,23 +81,32 @@ export default function ProgressScreen() {
             tone="acid"
           />
         ) : (
-          <View style={{ paddingHorizontal: space.gutter, gap: space.sm }}>
-            {/* summary strip */}
-            <HUDFrame tint={hudTint.acid} style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <StatReadout k="SESSIONS" v={String(sessions.length)} tint={color.textHi} />
-              <StatReadout k="REPS" v={String(totalReps)} tint={color.mesh} />
-              <StatReadout k="7D SCORE" v={weekly === null ? '—' : String(weekly)} tint={color.acid} />
-              <StatReadout k="STREAK" v={String(streak)} unit={streak === 1 ? 'DAY' : 'DAYS'} tint={streak > 0 ? color.acid : color.textLo} />
-            </HUDFrame>
+          <View style={{ gap: space.lg }}>
+            {/* the record, as four readings — no frame needed */}
+            <View style={{ paddingHorizontal: space.gutter, flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Metric value={String(sessions.length)} caption="SESSIONS" size={30} />
+              <Metric value={String(totalReps)} caption="REPS" size={30} tint={color.mesh} />
+              <Metric value={weekly === null ? '—' : String(weekly)} caption="7-DAY SCORE" size={30} tint={color.acid} />
+              <Metric
+                value={String(streak)}
+                caption={streak === 1 ? 'DAY' : 'DAYS'}
+                size={30}
+                tint={streak > 0 ? color.textHi : color.textLo}
+              />
+            </View>
 
             {/* per-exercise trend */}
-            <GlassCard style={{ gap: 10 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <AppText variant="nano" color={color.textLo}>
-                  TECHNIQUE TREND
-                </AppText>
-                {trend.topFault ? <Chip label={`TOP FAULT · ${trend.topFault.toUpperCase()}`} tint={color.warn} /> : null}
-              </View>
+            <Section
+              label="TECHNIQUE TREND"
+              aside={
+                trend.topFault ? (
+                  <AppText variant="nano" color={color.warn}>
+                    {`TOP FAULT — ${trend.topFault.toUpperCase()}`}
+                  </AppText>
+                ) : null
+              }
+              style={{ gap: 10 }}
+            >
               <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
                 {trained.map((e) => (
                   <PressableScale key={e.id} onPress={() => setExFilter(e.id)} accessibilityRole="button" accessibilityLabel={`Trend for ${e.name}`}>
@@ -104,22 +114,23 @@ export default function ProgressScreen() {
                   </PressableScale>
                 ))}
               </View>
-              <TrendChart values={trend.scores} width={width - space.gutter * 2 - 32} />
+              <TrendChart values={trend.scores} width={width - space.gutter * 2} />
               <View style={{ flexDirection: 'row', gap: 26 }}>
                 <StatReadout k="LAST" v={trend.scores.length ? String(trend.scores[trend.scores.length - 1]) : '—'} tint={color.acid} />
                 <StatReadout k="AVG SYM" v={trend.sym === null ? '—' : String(trend.sym)} unit={trend.sym === null ? undefined : '%'} tint={color.mesh} />
                 <StatReadout k="AVG TEMPO" v={trend.tempo === null ? '—' : String(trend.tempo)} unit={trend.tempo === null ? undefined : '%'} tint={color.mesh} />
               </View>
-            </GlassCard>
+            </Section>
 
             {/* achievements */}
-            <GlassCard style={{ gap: 10 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <AppText variant="nano" color={color.textLo}>
-                  ACHIEVEMENTS
+            <Section
+              label="ACHIEVEMENTS"
+              aside={
+                <AppText variant="nano" color={color.acid}>
+                  {`${earned.length}/${achievements.length}`}
                 </AppText>
-                <Chip label={`${earned.length}/${achievements.length}`} tint={color.acid} />
-              </View>
+              }
+            >
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
                 {achievements.map((a) => (
                   <View
@@ -148,32 +159,62 @@ export default function ProgressScreen() {
                   </View>
                 ))}
               </View>
-            </GlassCard>
+            </Section>
 
-            {/* timeline */}
-            <AppText variant="nano" color={color.textLo} style={{ marginTop: 4 }}>
-              TIMELINE · METRICS ONLY · NO VIDEO IS EVER STORED
-            </AppText>
-            {sessions.map((s) => (
-              <GlassCard key={s.id} style={{ flexDirection: 'row', alignItems: 'center', gap: space.md }}>
-                <SeverityRing score={s.techniqueScore} size={64} showValue />
-                <View style={{ flex: 1, gap: 4 }}>
-                  <AppText variant="nano" color={color.textLo}>
-                    {new Date(s.date)
-                      .toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })
-                      .toUpperCase()}
-                    {` · ${s.durationSec}s · ${s.dataSource.toUpperCase()}`}
-                  </AppText>
-                  <AppText variant="h3">{s.exerciseName}</AppText>
-                  <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
-                    <Chip label={`${s.reps} REPS`} tint={color.textMid} />
-                    <Chip label={`${s.cleanReps} CLEAN`} tint={color.ok} />
-                    {s.safetyAlerts > 0 ? <Chip label={`${s.safetyAlerts} STOP`} tint={color.error} dot /> : null}
-                    {s.topFault ? <Chip label={s.topFault.name.toUpperCase()} tint={color.warn} /> : null}
+            {/* the log reads as a ledger: date, lift, the numbers, done */}
+            <Section
+              label="SESSION LOG"
+              aside={
+                <AppText variant="nano" color={color.textLo}>
+                  METRICS ONLY — NO VIDEO STORED
+                </AppText>
+              }
+            >
+              {sessions.map((s, i) => (
+                <View
+                  key={s.id}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: space.md,
+                    paddingVertical: 12,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: 'rgba(255,255,255,0.05)',
+                  }}
+                >
+                  <View style={{ width: 44 }}>
+                    <AppText
+                      variant="monoValue"
+                      color={s.techniqueScore >= 75 ? color.acid : s.techniqueScore >= 50 ? color.warn : color.error}
+                    >
+                      {s.techniqueScore}
+                    </AppText>
                   </View>
+                  <View style={{ flex: 1 }}>
+                    <AppText variant="bodyMed">{s.exerciseName}</AppText>
+                    <AppText variant="nano" color={color.textLo} style={{ marginTop: 3 }}>
+                      {[
+                        new Date(s.date)
+                          .toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+                          .toUpperCase(),
+                        `${s.cleanReps}/${s.reps} CLEAN`,
+                        `${s.durationSec}s`,
+                        s.dataSource.toUpperCase(),
+                      ].join('   ')}
+                    </AppText>
+                  </View>
+                  {s.safetyAlerts > 0 ? (
+                    <AppText variant="nano" color={color.error}>
+                      {`${s.safetyAlerts} STOP`}
+                    </AppText>
+                  ) : s.topFault ? (
+                    <AppText variant="nano" color={color.warn}>
+                      {s.topFault.name.toUpperCase()}
+                    </AppText>
+                  ) : null}
                 </View>
-              </GlassCard>
-            ))}
+              ))}
+            </Section>
           </View>
         )}
       </ScrollView>

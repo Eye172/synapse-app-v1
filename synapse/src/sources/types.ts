@@ -30,7 +30,7 @@ export interface SensorSource {
 }
 
 export interface PoseSource {
-  readonly kind: 'sim' | 'camera';
+  readonly kind: 'sim' | 'camera' | 'rig';
   start(): void;
   stop(): void;
   onPose(cb: (frame: PoseFrame) => void): Unsubscribe;

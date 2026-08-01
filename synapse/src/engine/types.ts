@@ -35,30 +35,70 @@ export interface Landmark {
   z?: number;
   /** visibility/confidence 0..1 */
   v: number;
+  /**
+   * True when this point was inferred rather than measured — e.g. the Rig has
+   * no forearm IMU, so the wrist is drawn by continuing the upper arm. Drawn
+   * dimmed, and never fed to the grader: a metric that depends on an
+   * estimated point reports NO DATA instead of a plausible-looking guess
+   * (deal-breaker 2).
+   */
+  est?: boolean;
 }
 
 export interface PoseFrame {
   /** arrival time, ms */
   t: number;
   landmarks: Landmark[];
-  source: 'sim' | 'camera';
+  source: 'sim' | 'camera' | 'rig';
 }
 
 // ---------- sensor (the Rig) ----------
+
+/**
+ * The Rig's five IMU mount points. This is the hardware's own vocabulary
+ * (firmware v2 keys) — one node per limb plus the back.
+ */
+export type RigNodeId = 'back' | 'leftArm' | 'rightArm' | 'leftLeg' | 'rightLeg';
+
+/**
+ * Wire order of the compact array payload. Index ↔ node id; must match the
+ * firmware's serialization order.
+ */
+export const RIG_NODE_ORDER: RigNodeId[] = ['back', 'leftArm', 'leftLeg', 'rightArm', 'rightLeg'];
+
+export const RIG_NODE_IDS: readonly RigNodeId[] = [
+  'back',
+  'leftArm',
+  'rightArm',
+  'leftLeg',
+  'rightLeg',
+];
+
+export function isRigNodeId(id: string): id is RigNodeId {
+  return (RIG_NODE_IDS as readonly string[]).includes(id);
+}
 
 /** Normalized internal frame every transport maps into (§2.9). */
 export interface SensorFrame {
   /** arrival time, ms */
   t: number;
   nodes: SensorNode[];
+  /** true when any node (or the legacy top-level flag) is alerting */
   flags: { alert?: boolean };
   battery?: number;
+  /** which wire format produced this frame — surfaced in diagnostics */
+  protocol: 'v0' | 'v1' | 'v2-named' | 'v2-array';
 }
 
 export interface SensorNode {
-  id: string; // body segment id, e.g. "spine"
-  angleDeg?: number;
+  /** rig mount point; legacy v0/v1 payloads map their single node to "back" */
+  id: RigNodeId;
+  /** per-node fault flag straight from the firmware */
+  alert?: boolean;
+  /** absolute orientation, scalar-first (r, i, j, k) */
   quat?: [number, number, number, number];
+  /** legacy v0 scalar pitch, degrees */
+  angleDeg?: number;
 }
 
 // ---------- metrics ----------

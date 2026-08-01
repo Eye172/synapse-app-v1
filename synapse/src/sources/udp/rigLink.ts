@@ -1,3 +1,4 @@
+import { CalibrationCollector, RigCalibration } from '@/src/engine/rigBody';
 import type { SensorFrame } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
@@ -72,38 +73,60 @@ class RigLinkManager {
 export const rigLink = new RigLinkManager();
 
 /**
- * Calibration (§2.9): sample the neutral stance for ~3s and zero the spine
- * reference — offsets persist in settings and feed every set's fusion.
+ * Calibration (§2.9): hold a neutral stance while every node's orientation is
+ * averaged. Those references are what make the whole body model
+ * mounting-agnostic — after this, "how far has this segment moved from
+ * neutral" is exact regardless of how the hardware sits on the user.
+ *
+ * Persists to settings so a calibrated Rig stays calibrated across sessions.
  */
 export async function calibrateNeutral(
   src: UdpSensorSource,
-  opts: { durationMs?: number; onProgress?: (p: number, angle: number | null) => void } = {},
-): Promise<{ ok: boolean; offset?: number; samples?: number }> {
+  opts: {
+    durationMs?: number;
+    onProgress?: (p: number, nodesSeen: number) => void;
+  } = {},
+): Promise<{ ok: boolean; calibration?: RigCalibration; nodes?: number; reason?: string }> {
   const durationMs = opts.durationMs ?? 3000;
-  const samples: number[] = [];
+  const collector = new CalibrationCollector();
   const t0 = Date.now();
 
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: Awaited<ReturnType<typeof calibrateNeutral>>) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(timer);
+      unsub();
+      resolve(result);
+    };
+
     const unsub = src.onFrame((f) => {
-      const spine = f.nodes.find((n) => n.id === 'spine');
-      if (spine?.angleDeg !== undefined) samples.push(spine.angleDeg);
-      const p = Math.min(1, (Date.now() - t0) / durationMs);
-      opts.onProgress?.(p, spine?.angleDeg ?? null);
+      collector.add(f);
+      opts.onProgress?.(Math.min(1, (Date.now() - t0) / durationMs), collector.nodeCount);
     });
+
     const timer = setInterval(() => {
-      if (Date.now() - t0 >= durationMs) {
-        clearInterval(timer);
-        unsub();
-        if (samples.length < 5) {
-          resolve({ ok: false, samples: samples.length });
-          return;
-        }
-        const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
-        // neutral upright spine should read 90 (firmware convention)
-        const offset = mean - 90;
-        useSettingsStore.getState().set({ rigZeroOffsets: { spine: offset } });
-        resolve({ ok: true, offset, samples: samples.length });
+      if (Date.now() - t0 < durationMs) return;
+      const cal = collector.build();
+      if (cal === null) {
+        finish({
+          ok: false,
+          nodes: collector.nodeCount,
+          reason:
+            collector.nodeCount === 0
+              ? 'No orientation data arrived — is the Rig streaming?'
+              : 'The back node never reported; it anchors the body reference.',
+        });
+        return;
       }
+      useSettingsStore.getState().set({ rigCalibration: cal.toJSON() });
+      finish({ ok: true, calibration: cal, nodes: collector.nodeCount });
     }, 100);
   });
+}
+
+/** The calibration persisted from a previous session, if any. */
+export function storedCalibration(): RigCalibration {
+  return RigCalibration.fromJSON(useSettingsStore.getState().rigCalibration);
 }

@@ -40,27 +40,30 @@ export function PrimaryButton({
       accessibilityLabel={accessibilityLabel ?? title}
       style={style}
     >
+      {/* A control, not a light source: crisp acid slab, a square corner to
+          echo the HUD frames, and elevation only — no neon halo. */}
       <View
         style={[
           {
             backgroundColor: disabled ? color.surface1 : bg,
-            borderRadius: radius.hud + 4,
-            paddingVertical: compact ? 12 : 16,
+            borderRadius: radius.hudSm,
+            borderTopRightRadius: radius.glassSm,
+            paddingVertical: compact ? 12 : 15,
             paddingHorizontal: space.lg,
             alignItems: 'center',
           },
-          disabled ? null : glow(bg, 18, 0.55, 6),
+          disabled ? null : glow(bg, 10, 0.22, 4),
         ]}
       >
         <AppText
           variant="h3"
           color={disabled ? color.textLo : ink}
-          style={{ fontFamily: 'ChakraPetch_700Bold', textTransform: 'uppercase', letterSpacing: 1.2 }}
+          style={{ fontFamily: 'ChakraPetch_700Bold', textTransform: 'uppercase', letterSpacing: 1.4 }}
         >
           {title}
         </AppText>
         {sub ? (
-          <AppText variant="nano" color={disabled ? color.textLo : `${ink}CC`} style={{ marginTop: 2 }}>
+          <AppText variant="nano" color={disabled ? color.textLo : `${ink}BB`} style={{ marginTop: 3 }}>
             {sub}
           </AppText>
         ) : null}

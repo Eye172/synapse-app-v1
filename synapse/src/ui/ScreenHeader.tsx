@@ -23,7 +23,9 @@ export function ScreenHeader({
     <View style={{ paddingHorizontal: space.gutter, paddingTop: space.sm, gap: 6 }}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-          <View style={[{ width: 6, height: 6, borderRadius: 3, backgroundColor: color.acid }, glow(color.acid, 6, 0.9, 0)]} />
+          {/* a flat tick, not a glowing bead — the accent is spent on the
+              one thing that matters per screen */}
+          <View style={{ width: 10, height: 2, backgroundColor: color.acid }} />
           <AppText variant="nano" color={color.acid}>
             {eyebrow}
           </AppText>

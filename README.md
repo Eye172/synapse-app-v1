@@ -46,16 +46,58 @@ Read this while screen-recording; every line maps 1:1 to an on-screen beat.
 | **This build (working today)** | **Roadmap (§7 of the brief)** |
 |---|---|
 | Full training loop: select → tutorial → arm → position-lock → live set → ephemeral review → report | BLE transport + auto-pairing |
-| Deterministic **form-rule engine**: continuous severity grading, safety alerts, hysteresis rep counting, tempo & symmetry | Full-body multi-node Mesh (per-joint quaternions) |
-| **The Mesh**: Skia skeleton with backbone, ghost alignment, fault tinting — sim today, camera-pose seam ready | Cloud accounts, program sync, coach-shared programs |
-| **Rig link**: UDP `:1234`, firmware payload `{"angle","alert"}` (+ forward-compatible v1), connect wizard, neutral-stance calibration | Real-time interruptible voice coaching |
+| Deterministic **form-rule engine**: continuous severity grading, safety alerts, hysteresis rep counting, tempo & symmetry | Per-joint quaternions (a second IMU below each knee/elbow) |
+| **The Mesh**: Skia skeleton with backbone, ghost alignment, fault tinting — **drawn by the Rig itself** via forward kinematics, or by camera/sim | Cloud accounts, program sync, coach-shared programs |
+| **Rig link**: UDP `:1234`, five-node quaternion protocol v2 (both wire forms) + legacy payloads, connect wizard, per-node calibration | Real-time interruptible voice coaching |
 | **AI Coach**: RuleCoach always-on (offline); optional Claude coach (`claude-haiku-4-5` in-set ≤8 words, `claude-sonnet-5` debrief) with hard no-fabrication guards | PT / clinical mode |
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
 | Progress trends, achievements, kit manager, onboarding, Demo Mode everywhere | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by 74 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): on-device camera pose (needs the dev build + a pose detector, see below), real UDP packets from hardware, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by 109 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
 
 ---
+
+## The Rig protocol (v2 — five nodes, quaternions)
+
+The exoskeleton carries one IMU per limb plus the back, and ships each frame as a JSON string over UDP to `:1234`. Both spellings below are accepted and carry identical information — use whichever the firmware finds cheaper to serialize.
+
+**Named form** — read as `package.back.alert`, `package.back.quaternions.k`:
+
+```json
+{"back":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "leftArm":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "leftLeg":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "rightArm":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "rightLeg":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}}}
+```
+
+**Compact form** — read as `package[0].alert`, `package[0].q[3]`:
+
+```json
+[{"alert":false,"q":[0.0,0.0,0.0,0.0]},
+ {"alert":false,"q":[0.0,0.0,0.0,0.0]},
+ {"alert":false,"q":[0.0,0.0,0.0,0.0]},
+ {"alert":false,"q":[0.0,0.0,0.0,0.0]},
+ {"alert":false,"q":[0.0,0.0,0.0,0.0]}]
+```
+
+Contract details the parser enforces:
+
+| Point | Rule |
+|---|---|
+| **Array order** | `[0] back, [1] leftArm, [2] leftLeg, [3] rightArm, [4] rightLeg` — positional, from `RIG_NODE_ORDER` |
+| **`q` order** | `[r, i, j, k]` — scalar first, matching the named form's own field order. One constant (`V2_QUAT_ORDER`) flips it if firmware ever packs scalar-last |
+| **Alerts** | Per node. Any node alerting raises the frame alert and a safety stop on its own authority |
+| **Partial rigs** | A frame with 2 of 5 nodes is valid — dead straps degrade, they don't break the session |
+| **Python reprs** | A raw `str(dict)` (single quotes, `False`/`True`/`None`) is repaired rather than dropped |
+| **Hostile input** | Oversized payloads, NaN, non-unit quaternions, wrong types, unknown segment names and `__proto__` keys are all rejected without throwing; intake is rate-capped at 120 packets/s |
+| **Legacy** | The prototype's `{"angle":41.7,"alert":true}` and the v1 `nodes[]` form still parse, mapped onto the `back` node |
+
+**What five IMUs can honestly measure.** Segment orientation gives trunk lean, hip angle (trunk↔thigh), shoulder elevation (trunk↔arm), left/right symmetry and a thigh-collapse valgus proxy — all real, all graded. Knee and elbow *flexion* need a second sensor below each joint and are reported as **NO DATA** from the Rig alone, never guessed. Spinal *rounding* is likewise not separable from a correct hinge with one back sensor, so it stays a camera measurement — while the firmware's own `alert` flag still raises a safety stop.
+
+**Calibration is what makes it mounting-agnostic.** Hold a neutral stance for three seconds and every node's reference orientation is captured; from then on the app works in *relative* rotation, so it does not care how the straps happen to sit. The references persist between sessions.
+
+**The Rig draws the body.** With five nodes calibrated, forward kinematics places a full 33-point skeleton — so the Mesh renders, grades and counts reps with **no camera and no pose model at all**. Points the hardware cannot see (ankles, wrists) are drawn but flagged as inferred and carry low confidence.
 
 ## Pointing a real Rig at it
 
@@ -70,8 +112,9 @@ The firmware (see [`materials/base/main.py`](materials/base/main.py)) speaks UDP
 4. No hardware handy? Emulate the Rig from this repo:
    ```bash
    cd synapse
-   node scripts/send-test-packet.js <phone-ip>            # one packet: {"angle":41.7,"alert":true}
-   node scripts/send-test-packet.js <phone-ip> --stream   # 10 Hz hinge cycle with alerts
+   node scripts/send-test-packet.js <phone-ip>            # one v2 five-node frame
+   node scripts/send-test-packet.js <phone-ip> --stream   # 10 Hz five-node squat cycle
+   node scripts/send-test-packet.js <phone-ip> --stream --compact   # the array form
    ```
 
 When LINKED, Rig angles are authoritative for the spine; the camera/sim Mesh covers everything else. The wizard, staleness handling (`SEARCHING`/`LOST` auto-recovery), and hostile-input hardening are unit-tested against the exact firmware payloads.

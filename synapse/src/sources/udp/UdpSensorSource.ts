@@ -18,6 +18,7 @@ export interface UdpSocketLike {
   bind(port: number): void;
   on(event: 'message', cb: (msg: Uint8Array | string, rinfo?: unknown) => void): void;
   once?(event: 'error', cb: (e: unknown) => void): void;
+  removeAllListeners?(event?: string): void;
   close(): void;
 }
 
@@ -37,6 +38,9 @@ function defaultSocketFactory(): UdpSocketLike | null {
 
 export const RIG_UDP_PORT = 1234;
 const SILENCE_LOST_MS = 2500;
+/** ~10 Hz is the firmware's rate; this leaves generous headroom for bursts. */
+const MAX_PACKETS_PER_SEC = 120;
+const HZ_WINDOW_MAX = 200;
 
 export class UdpSensorSource implements SensorSource {
   readonly kind = 'udp' as const;
@@ -49,6 +53,9 @@ export class UdpSensorSource implements SensorSource {
   private lastFrameT = 0;
   private watchdog: ReturnType<typeof setInterval> | null = null;
   private hzWindow: number[] = [];
+  private budgetStart = 0;
+  private acceptedThisSecond = 0;
+  private droppedThisSecond = 0;
 
   constructor(
     private opts: {
@@ -116,6 +123,26 @@ export class UdpSensorSource implements SensorSource {
   /** exposed for tests */
   onMessage(msg: Uint8Array | string): void {
     const now = this.now();
+
+    // An open UDP port accepts traffic from anything on the same network, so
+    // the intake is rate-limited before any work happens. A real Rig sends at
+    // ~10 Hz; a flood — misconfigured device or someone probing the hotspot —
+    // is dropped here rather than being allowed to drive the render loop flat
+    // out and burn the battery.
+    if (now - this.budgetStart >= 1000) {
+      if (this.droppedThisSecond > 0) {
+        console.warn(`[synapse] rig intake dropped ${this.droppedThisSecond} packet(s) over the rate cap`);
+      }
+      this.budgetStart = now;
+      this.acceptedThisSecond = 0;
+      this.droppedThisSecond = 0;
+    }
+    if (this.acceptedThisSecond >= MAX_PACKETS_PER_SEC) {
+      this.droppedThisSecond += 1;
+      return;
+    }
+    this.acceptedThisSecond += 1;
+
     const frame = parseRigPayload(msg, now);
     if (frame === null) return; // malformed → drop, never crash
     // out-of-order guard: keep the newest only
@@ -123,7 +150,7 @@ export class UdpSensorSource implements SensorSource {
     this.lastFrameT = frame.t;
     this.lastFrameAt = now;
     this.hzWindow.push(now);
-    if (this.hzWindow.length > 200) this.hzWindow.shift();
+    if (this.hzWindow.length > HZ_WINDOW_MAX) this.hzWindow.shift();
     if (this.status !== 'active') this.setStatus('active');
     this.frames.emit(frame);
   }
@@ -131,15 +158,32 @@ export class UdpSensorSource implements SensorSource {
   stop(): void {
     if (this.watchdog) clearInterval(this.watchdog);
     this.watchdog = null;
-    if (this.socket) {
+    const socket = this.socket;
+    this.socket = null;
+    if (socket) {
       try {
-        this.socket.close();
+        // drop handlers before closing so a late packet can't reach a
+        // half-torn-down source
+        socket.removeAllListeners?.('message');
+        socket.removeAllListeners?.('error');
+        socket.close();
       } catch {
         // socket may already be gone
       }
-      this.socket = null;
     }
+    this.hzWindow.length = 0;
+    this.lastFrameT = 0;
     this.setStatus('idle');
+  }
+
+  /**
+   * Release every listener as well as the socket. `stop()` is reversible;
+   * this is not — call it when the link itself is being discarded.
+   */
+  dispose(): void {
+    this.stop();
+    this.frames.clear();
+    this.statuses.clear();
   }
 
   onFrame(cb: (f: SensorFrame) => void): Unsubscribe {

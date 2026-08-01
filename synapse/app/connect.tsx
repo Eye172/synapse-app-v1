@@ -4,7 +4,7 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { buzz } from '@/src/coach/haptics';
-import type { SensorFrame } from '@/src/engine/types';
+import { RIG_NODE_IDS, type RigNodeId, type SensorFrame, type SensorNode } from '@/src/engine/types';
 import { rigLink, calibrateNeutral } from '@/src/sources/udp/rigLink';
 import { RIG_UDP_PORT } from '@/src/sources/udp/UdpSensorSource';
 import { useConnectionStore } from '@/src/store/connectionStore';
@@ -21,6 +21,14 @@ import { StatReadout } from '@/src/ui/StatReadout';
 
 type WizardStep = 'unavailable' | 'searching' | 'found' | 'calibrating' | 'linked';
 
+const NODE_LABEL: Record<RigNodeId, string> = {
+  back: 'BACK',
+  leftArm: 'ARM · L',
+  rightArm: 'ARM · R',
+  leftLeg: 'LEG · L',
+  rightLeg: 'LEG · R',
+};
+
 /**
  * Connect wizard (§2.4-A, §2.9): the phone opens a hotspot named "Synapse",
  * the Rig's nodes join it and stream UDP to :1234. SEARCHING → NODES FOUND →
@@ -33,14 +41,14 @@ export default function ConnectScreen() {
   const nodeCount = useConnectionStore((s) => s.nodeCount);
   const hz = useConnectionStore((s) => s.hz);
   const battery = useConnectionStore((s) => s.battery);
-  const offsets = useSettingsStore((s) => s.rigZeroOffsets);
+  const calNodes = useSettingsStore((s) => Object.keys(s.rigCalibration).length);
 
   const [step, setStep] = useState<WizardStep>('searching');
-  const [liveAngle, setLiveAngle] = useState<number | null>(null);
+  const [liveNodes, setLiveNodes] = useState<SensorNode[]>([]);
   const [alertFlag, setAlertFlag] = useState(false);
   const [calProgress, setCalProgress] = useState(0);
   const [calError, setCalError] = useState<string | null>(null);
-  const calibrated = offsets.spine !== undefined;
+  const calibrated = calNodes > 0;
   const unsubRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -54,8 +62,7 @@ export default function ConnectScreen() {
       return undefined;
     }
     unsubRef.current = src.onFrame((f: SensorFrame) => {
-      const spine = f.nodes.find((n) => n.id === 'spine');
-      setLiveAngle(spine?.angleDeg ?? null);
+      setLiveNodes(f.nodes);
       setAlertFlag(f.flags.alert === true);
     });
     return () => {
@@ -81,17 +88,12 @@ export default function ConnectScreen() {
     setStep('calibrating');
     setCalError(null);
     setCalProgress(0);
-    const res = await calibrateNeutral(src, {
-      onProgress: (p, angle) => {
-        setCalProgress(p);
-        if (angle !== null) setLiveAngle(angle);
-      },
-    });
+    const res = await calibrateNeutral(src, { onProgress: (p) => setCalProgress(p) });
     if (res.ok) {
       buzz('lock');
       setStep('linked');
     } else {
-      setCalError('Not enough frames — is the Rig still streaming?');
+      setCalError(res.reason ?? 'Not enough frames — is the Rig still streaming?');
       setStep('found');
     }
   };
@@ -154,19 +156,41 @@ export default function ConnectScreen() {
                 LIVE LINK · UDP :{RIG_UDP_PORT}
               </AppText>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <StatReadout k="NODES" v={String(nodeCount)} tint={nodeCount > 0 ? color.acid : color.textLo} />
+                <StatReadout k="NODES" v={`${nodeCount}/5`} tint={nodeCount > 0 ? color.acid : color.textLo} />
                 <StatReadout k="RATE" v={hz > 0 ? String(hz) : '—'} unit={hz > 0 ? 'HZ' : undefined} tint={color.mesh} />
-                <StatReadout
-                  k="SPINE"
-                  v={liveAngle === null ? '—' : liveAngle.toFixed(0)}
-                  unit={liveAngle === null ? undefined : '°'}
-                  tint={alertFlag ? color.error : color.mesh}
-                />
                 <StatReadout k="BATT" v={battery === null ? '—' : String(battery)} unit={battery === null ? undefined : '%'} tint={color.textHi} />
               </View>
+
+              {/* every mount point, live — the fastest way to spot a dead strap */}
+              <View style={{ gap: 4 }}>
+                {RIG_NODE_IDS.map((id) => {
+                  const node = liveNodes.find((n) => n.id === id);
+                  const reporting = node !== undefined;
+                  const faulted = node?.alert === true;
+                  return (
+                    <View key={id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <View
+                        style={{
+                          width: 5,
+                          height: 5,
+                          borderRadius: 3,
+                          backgroundColor: faulted ? color.error : reporting ? color.mesh : 'rgba(255,255,255,0.14)',
+                        }}
+                      />
+                      <AppText variant="nano" color={reporting ? color.textMid : color.textLo} style={{ width: 74 }}>
+                        {NODE_LABEL[id]}
+                      </AppText>
+                      <AppText variant="nano" color={faulted ? color.error : reporting ? color.mesh : color.textLo}>
+                        {faulted ? 'ALERT' : reporting ? 'REPORTING' : 'SILENT'}
+                      </AppText>
+                    </View>
+                  );
+                })}
+              </View>
+
               {alertFlag ? (
                 <AppText variant="nano" color={color.error}>
-                  ⚠ RIG ALERT FLAG RAISED — FIRMWARE SEES A BAD ANGLE
+                  ⚠ A NODE IS FLAGGING — THE FIRMWARE SEES A BAD ANGLE
                 </AppText>
               ) : null}
             </HUDFrame>
@@ -225,8 +249,7 @@ export default function ConnectScreen() {
                   LINKED · CALIBRATED
                 </AppText>
                 <AppText variant="body">
-                  Neutral reference locked{offsets.spine !== undefined ? ` (offset ${offsets.spine.toFixed(1)}°)` : ''}. The
-                  Rig’s spine angle now grades your lifts wherever its node reaches; the camera Mesh covers the rest.
+                  {`Neutral reference locked on ${calNodes} node${calNodes === 1 ? '' : 's'}. The Rig now draws your body and grades every joint it spans — trunk, hips and shoulders — with no camera required.`}
                 </AppText>
                 <View style={{ flexDirection: 'row', gap: 8 }}>
                   <View style={{ flex: 1 }}>

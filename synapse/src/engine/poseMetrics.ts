@@ -11,7 +11,9 @@ const VIS_MIN = 0.35;
 
 function lm(landmarks: Landmark[], i: number): Landmark | null {
   const l = landmarks[i];
-  if (!l || l.v < VIS_MIN) return null;
+  // `est` points were inferred, not measured (e.g. a wrist with no forearm
+  // IMU behind it). They may be drawn, never measured (deal-breaker 2).
+  if (!l || l.v < VIS_MIN || l.est === true) return null;
   return l;
 }
 

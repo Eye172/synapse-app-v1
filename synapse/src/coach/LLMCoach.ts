@@ -54,6 +54,8 @@ export class LLMCoach implements Coach {
   private emit: (cue: CoachCue) => void;
   private ex: ExerciseSpec | null = null;
   private inflight = 0;
+  private pending = new Set<ReturnType<typeof setTimeout>>();
+  private disposed = false;
 
   constructor(opts: {
     apiKey?: string;
@@ -175,6 +177,17 @@ export class LLMCoach implements Coach {
     return this.inflight;
   }
 
+  /**
+   * Stop coaching. Any cue still racing its deadline is abandoned rather than
+   * spoken after the set is over — a correction that arrives once the bar is
+   * racked is worse than silence.
+   */
+  dispose(): void {
+    this.disposed = true;
+    for (const t of this.pending) clearTimeout(t);
+    this.pending.clear();
+  }
+
   private async getClient(): Promise<AnthropicLike> {
     if (!this.client) this.client = await this.clientFactory();
     return this.client;
@@ -192,13 +205,15 @@ export class LLMCoach implements Coach {
    * emitted per breakpoint, and it is never slower than deadline+ε.
    */
   private refineAsync(fallback: CoachCue, context: Record<string, unknown>): void {
+    if (this.disposed) return;
     let settled = false;
     const settle = (cue: CoachCue) => {
-      if (settled) return;
+      if (settled || this.disposed) return;
       settled = true;
       this.emit(cue);
     };
     const deadline = setTimeout(() => settle(fallback), CUE_DEADLINE_MS);
+    this.pending.add(deadline);
 
     this.inflight += 1;
     void (async () => {
@@ -228,9 +243,11 @@ export class LLMCoach implements Coach {
         // the 8-word wall is a deal-breaker: an over-long cue loses to the deterministic one
         if (raw.length === 0 || raw.split(/\s+/).length > 8) throw new Error('cue out of spec');
         clearTimeout(deadline);
+        this.pending.delete(deadline);
         settle({ ...fallback, text: raw });
       } catch {
         clearTimeout(deadline);
+        this.pending.delete(deadline);
         settle(fallback);
       } finally {
         this.inflight -= 1;

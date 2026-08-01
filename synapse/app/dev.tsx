@@ -5,9 +5,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { RuleCoach } from '@/src/coach/RuleCoach';
 import type { CoachCue } from '@/src/coach/types';
+import { RigCalibration, rigBodyState, rigMetrics } from '@/src/engine/rigBody';
 import type { SafetyAlert } from '@/src/engine/ruleEngine';
 import { SetEngine, type EngineFrame, type RepRecord } from '@/src/engine/setSession';
-import type { SensorFrame } from '@/src/engine/types';
+import { RIG_NODE_IDS, type SensorFrame } from '@/src/engine/types';
 import { EXERCISES } from '@/src/data/exercises';
 import { SimPoseSource } from '@/src/sources/sim/SimPoseSource';
 import { SimSensorSource } from '@/src/sources/sim/SimSensorSource';
@@ -81,8 +82,14 @@ export default function DevScreen() {
     };
   }, [ex, faultMode]);
 
-  const spine = sensor?.nodes.find((n) => n.id === 'spine');
   const primary = frame?.metrics[ex.rep.metric];
+  // live segment directions — the fastest way to confirm RIG_MOUNT on real
+  // hardware: stand upright, and back should read up (y≈+1), limbs down.
+  const rigState = useMemo(
+    () => (sensor ? rigBodyState(sensor, new RigCalibration()) : null),
+    [sensor],
+  );
+  const back = rigState?.segments.back;
 
   return (
     <View style={{ flex: 1 }}>
@@ -125,8 +132,8 @@ export default function DevScreen() {
               tint={color.textHi}
             />
             <StatReadout
-              k="SPINE·RIG"
-              v={spine?.angleDeg !== undefined ? spine.angleDeg.toFixed(0) : '—'}
+              k="LEAN·RIG"
+              v={back ? back.deltaDeg.toFixed(0) : '—'}
               unit="°"
               tint={sensor?.flags.alert ? color.error : color.mesh}
             />
@@ -173,9 +180,34 @@ export default function DevScreen() {
         </HUDFrame>
 
         <HUDFrame tint={hudTint.dim} style={{ gap: 4 }}>
-          <AppText variant="nano" color={color.textLo}>SENSORFRAME · UDP-SHAPE</AppText>
+          <AppText variant="nano" color={color.textLo}>
+            {`RIG SEGMENTS · ${sensor?.protocol.toUpperCase() ?? '—'} · UNCALIBRATED REFERENCE`}
+          </AppText>
+          {RIG_NODE_IDS.map((id) => {
+            const seg = rigState?.segments[id];
+            return (
+              <AppText key={id} variant="monoBody" color={seg?.alert ? color.error : seg ? color.textMid : color.textLo}>
+                {seg
+                  ? `${id.padEnd(9)} dir(${seg.dir.x.toFixed(2)},${seg.dir.y.toFixed(2)},${seg.dir.z.toFixed(2)}) Δ${seg.deltaDeg.toFixed(0)}°${seg.alert ? ' ALERT' : ''}`
+                  : `${id.padEnd(9)} silent`}
+              </AppText>
+            );
+          })}
+          <AppText variant="nano" color={color.textLo}>
+            {'STAND UPRIGHT: BACK SHOULD READ Y≈+1, LIMBS Y≈−1'}
+          </AppText>
+
+          <AppText variant="nano" color={color.textLo} style={{ marginTop: 6 }}>
+            RIG METRICS · ONLY WHAT 5 IMUS CAN SEE
+          </AppText>
           <AppText variant="monoBody" color={color.textMid}>
-            {sensor ? JSON.stringify({ t: sensor.t % 100000, nodes: sensor.nodes, flags: sensor.flags }) : '—'}
+            {rigState
+              ? (() => {
+                  const m = rigMetrics(rigState);
+                  const f = (v: number | null) => (v === null ? '—' : v.toFixed(0));
+                  return `lean ${f(m.torsoLean)}° hip ${f(m.hipAngle)}° shoulder ${f(m.shoulderElev)}° sym ${f(m.symmetry)} valgus ${f(m.kneeValgus)}°`;
+                })()
+              : '—'}
           </AppText>
           <AppText variant="nano" color={color.textLo}>RECENT REPS</AppText>
           {reps.length === 0 ? (

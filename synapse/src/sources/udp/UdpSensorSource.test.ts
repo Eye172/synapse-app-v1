@@ -57,7 +57,7 @@ describe('UdpSensorSource — the real-world is messy (§2.9)', () => {
     socket.push('{"angle": 41.7, "alert": true}');
     expect(src.status).toBe('active');
     expect(frames).toHaveLength(1);
-    expect(frames[0]!.nodes[0]).toEqual({ id: 'spine', angleDeg: 41.7 });
+    expect(frames[0]!.nodes[0]).toEqual({ id: 'back', angleDeg: 41.7, alert: true });
     expect(frames[0]!.flags.alert).toBe(true);
   });
 

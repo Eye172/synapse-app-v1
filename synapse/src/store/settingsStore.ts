@@ -11,13 +11,19 @@ export interface SettingsState {
   coachVerbosity: 'quiet' | 'normal';
   /** force Demo Mode even when hardware is present */
   demoModeForced: boolean;
+  /** which lens films the set — front to watch yourself, back for a propped phone */
+  cameraFacing: 'front' | 'back';
   /** whether an AI key is stored (the key itself lives in SecureStore) */
   aiKeyPresent: boolean;
   /** LLM provider id — provider-agnostic seam, Claude is the default */
   aiProvider: 'anthropic';
   onboardingDone: boolean;
-  /** Rig calibration: per-node zero offsets from the neutral-stance hold */
-  rigZeroOffsets: Record<string, number>;
+  /**
+   * Rig calibration: the neutral-stance reference quaternion per node,
+   * scalar-first (r,i,j,k). Persisted so a calibrated Rig stays calibrated
+   * between sessions.
+   */
+  rigCalibration: Record<string, [number, number, number, number]>;
   set: (p: Partial<Omit<SettingsState, 'set'>>) => void;
 }
 
@@ -29,10 +35,11 @@ export const useSettingsStore = create<SettingsState>()(
       hapticsOn: true,
       coachVerbosity: 'normal',
       demoModeForced: false,
+      cameraFacing: 'front',
       aiKeyPresent: false,
       aiProvider: 'anthropic',
       onboardingDone: false,
-      rigZeroOffsets: {},
+      rigCalibration: {},
       set: (p) => set(p),
     }),
     {

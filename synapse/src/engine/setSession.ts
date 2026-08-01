@@ -9,6 +9,7 @@ import type { PoseSource, SensorSource, Unsubscribe } from '@/src/sources/types'
 
 import { MetricFusion, type DataSourceLabel } from './fusion';
 import { MetricTracker, deriveMetrics } from './poseMetrics';
+import { RigCalibration, rigBodyState, rigMetrics } from './rigBody';
 import { RepCounter, tempoAdherence, type RepTiming } from './repCounter';
 import {
   AlertTracker,
@@ -104,6 +105,7 @@ export class SetEngine {
   private alertCount = 0;
   private lastAlertAt: number | null = null;
   private lastSource: DataSourceLabel = 'sim';
+  private calibration: RigCalibration;
 
   constructor(
     private ex: ExerciseSpec,
@@ -112,17 +114,15 @@ export class SetEngine {
       sensorSource?: SensorSource | null;
       /** false when the sensor is app-shared (live Rig link) — the set must not stop it */
       ownsSensor?: boolean;
-      /** per-node zero offsets from the calibration hold (§2.9) */
-      calibration?: Record<string, number>;
+      /** neutral-stance reference for the Rig's IMUs (§2.9) */
+      calibration?: RigCalibration;
       coach: Coach;
       events?: SetEngineEvents;
       now?: () => number;
     },
   ) {
     this.counter = new RepCounter(ex.rep);
-    for (const [nodeId, offset] of Object.entries(io.calibration ?? {})) {
-      this.fusion.calibrate(nodeId, offset);
-    }
+    this.calibration = io.calibration ?? new RigCalibration();
   }
 
   get exercise(): ExerciseSpec {
@@ -142,7 +142,13 @@ export class SetEngine {
     this.io.coach.setStart(this.ex);
     this.subs.push(this.io.poseSource.onPose((p) => this.onPose(p)));
     if (this.io.sensorSource) {
-      this.subs.push(this.io.sensorSource.onFrame((f) => this.fusion.updateSensor(f)));
+      this.subs.push(
+        this.io.sensorSource.onFrame((f) => {
+          // quaternion rigs carry real geometry; legacy scalar frames don't
+          const hasQuat = f.nodes.some((n) => n.quat !== undefined);
+          this.fusion.updateSensor(f, hasQuat ? rigMetrics(rigBodyState(f, this.calibration)) : null);
+        }),
+      );
       if (this.io.ownsSensor !== false) this.io.sensorSource.start();
     }
     this.io.poseSource.start();

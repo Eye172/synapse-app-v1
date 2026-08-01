@@ -50,6 +50,13 @@ export interface LiveResult {
  * fault chip, the glass coaching pill, STOP and PAUSE.
  * Must read like materials/deliverables/synapse-hud-mockup.html.
  */
+/** What the HUD calls whatever is currently drawing the body. */
+const MESH_SOURCE_LABEL: Record<'sim' | 'camera' | 'rig', string> = {
+  rig: 'RIG',
+  camera: 'CAMERA',
+  sim: 'SIM',
+};
+
 /** The big acid rep number, pulsing once per counted rep (§2.2 motion). */
 function RepCounterDisplay({ count }: { count: number }) {
   const scale = useSharedValue(1);
@@ -100,6 +107,9 @@ export function LiveStage({
   const [elapsed, setElapsed] = useState(0);
   const [recState, setRecState] = useState<'off' | 'recording' | 'stopping'>('off');
 
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraFailed, setCameraFailed] = useState(false);
+  const facing = useSettingsStore((s) => s.cameraFacing);
   const cameraRef = useRef<CameraView | null>(null);
   const engineRef = useRef<SetEngine | null>(null);
   const markersRef = useRef<FaultMarker[]>([]);
@@ -110,6 +120,8 @@ export function LiveStage({
   const recordPromiseRef = useRef<Promise<void> | null>(null);
 
   const recording = config.record && camGranted;
+  /** show the live view whenever we're allowed to and the hardware works */
+  const cameraLive = camGranted && !cameraFailed;
 
   // ---- engine ----
   useEffect(() => {
@@ -120,6 +132,9 @@ export function LiveStage({
 
     sources.startSet();
 
+    // every cue schedules a dismissal; they are tracked so none of them can
+    // fire into an unmounted screen
+    const cueTimers = new Set<ReturnType<typeof setTimeout>>();
     const handleCue = (c: CoachCue) => {
       const quiet = useSettingsStore.getState().coachVerbosity === 'quiet';
       setCue(c);
@@ -127,9 +142,11 @@ export function LiveStage({
       if (c.speak && (c.kind === 'safety' || !quiet)) speakCue(c.text, { urgent: c.kind === 'safety' });
       if (c.haptic) buzz(c.haptic);
       // a cue is a moment, not a banner — clear it after a beat
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        cueTimers.delete(timer);
         setCue((cur) => (cur === c ? null : cur));
       }, 4500);
+      cueTimers.add(timer);
     };
 
     // LLM narrates only when the user brought a key; the rules always grade
@@ -167,6 +184,11 @@ export function LiveStage({
     return () => {
       engine.stop();
       stopSpeech();
+      for (const t of cueTimers) clearTimeout(t);
+      cueTimers.clear();
+      // abandon any cue still racing its deadline — a correction that lands
+      // after the bar is racked is worse than silence
+      if (coach instanceof LLMCoach) coach.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ex, sources, aiKey]);
@@ -274,18 +296,37 @@ export function LiveStage({
 
   return (
     <View style={{ flex: 1, backgroundColor: color.void }}>
-      {/* camera behind everything only while a recording is armed */}
-      {recording ? (
-        <CameraView
-          ref={cameraRef}
-          style={{ position: 'absolute', top: 0, left: 0, width, height }}
-          facing="front"
-          mute
-          onCameraReady={startRecording}
-        />
-      ) : null}
-      {recording ? (
-        <View style={{ position: 'absolute', top: 0, left: 0, width, height, backgroundColor: 'rgba(6,7,11,0.45)' }} />
+      {/* The real camera sits behind the Mesh whenever it is allowed to —
+          seeing yourself under the skeleton is most of the point. It is
+          darkened so the graded segments stay readable over any gym. */}
+      {cameraLive ? (
+        <>
+          <CameraView
+            ref={cameraRef}
+            style={{ position: 'absolute', top: 0, left: 0, width, height }}
+            facing={facing}
+            mute
+            onCameraReady={() => {
+              setCameraReady(true);
+              if (recording) startRecording();
+            }}
+            onMountError={(e) => {
+              // another app holds the camera, or the device has none usable
+              console.warn('[synapse] camera unavailable, falling back to the void', e);
+              setCameraFailed(true);
+            }}
+          />
+          <View
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width,
+              height,
+              backgroundColor: 'rgba(6,7,11,0.52)',
+            }}
+          />
+        </>
       ) : null}
 
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
@@ -310,7 +351,13 @@ export function LiveStage({
         }}
       >
         <AppText variant="nano" color={color.textMid}>
-          {`MESH · ${linkMode === 'linked' ? 'RIG' : 'SIM'} · 30HZ${aiKey ? '' : ' · AI COACH OFFLINE'}`}
+          {[
+            `MESH · ${MESH_SOURCE_LABEL[sources.poseOrigin]}`,
+            cameraLive ? (cameraReady ? 'CAM LIVE' : 'CAM WAKING') : null,
+            aiKey ? null : 'AI OFFLINE',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
         </AppText>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
           {recState === 'recording' ? (

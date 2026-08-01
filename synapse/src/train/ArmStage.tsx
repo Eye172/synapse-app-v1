@@ -4,6 +4,7 @@ import { ScrollView, Switch, View } from 'react-native';
 
 import type { ExerciseSpec } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
+import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
 import { Chip } from '@/src/ui/Chip';
@@ -39,6 +40,8 @@ export function ArmStage({
   const [camPerm, requestCam] = useCameraPermissions();
   const mode = useConnectionStore((s) => s.mode);
   const camGranted = camPerm?.granted === true;
+  const facing = useSettingsStore((s) => s.cameraFacing);
+  const setSetting = useSettingsStore((s) => s.set);
   const camDenied = camPerm?.granted === false && camPerm?.canAskAgain === false;
 
   return (
@@ -74,6 +77,18 @@ export function ArmStage({
             </PressableScale>
           ) : null}
         </View>
+        {camGranted ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <StatusLine k="LENS" v={facing === 'front' ? 'FRONT · WATCH YOURSELF' : 'BACK · PROPPED PHONE'} tint={color.mesh} />
+            <PressableScale
+              onPress={() => setSetting({ cameraFacing: facing === 'front' ? 'back' : 'front' })}
+              accessibilityRole="button"
+              accessibilityLabel="Switch camera lens"
+            >
+              <Chip label="SWITCH" tint={color.mesh} />
+            </PressableScale>
+          </View>
+        ) : null}
         <AppText variant="nano" color={color.textLo}>
           FRAMES STAY ON THIS DEVICE. NOTHING UPLOADS.
         </AppText>

@@ -27,7 +27,9 @@ export default function TabsLayout() {
   return (
     <Tabs
       tabBar={(props) => <TabBar {...props} />}
-      screenOptions={{ headerShown: false, lazy: false }}
+      // mount tabs on first visit: four screens of live canvases at launch is
+      // memory and cold-start cost the user never asked for
+      screenOptions={{ headerShown: false, lazy: true }}
     >
       <Tabs.Screen name="index" options={{ title: 'Home' }} />
       <Tabs.Screen name="library" options={{ title: 'Library' }} />
