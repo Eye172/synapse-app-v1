@@ -41,6 +41,15 @@ const SILENCE_LOST_MS = 2500;
 /** ~10 Hz is the firmware's rate; this leaves generous headroom for bursts. */
 const MAX_PACKETS_PER_SEC = 120;
 const HZ_WINDOW_MAX = 200;
+const RAW_LOG_MAX = 12;
+const RAW_TEXT_MAX = 400;
+
+/** One packet as it came off the wire, with the parser's verdict. */
+export interface RawPacket {
+  t: number;
+  parsed: boolean;
+  text: string;
+}
 
 export class UdpSensorSource implements SensorSource {
   readonly kind = 'udp' as const;
@@ -56,6 +65,8 @@ export class UdpSensorSource implements SensorSource {
   private budgetStart = 0;
   private acceptedThisSecond = 0;
   private droppedThisSecond = 0;
+  private rawLog: RawPacket[] = [];
+  private rejectedCount = 0;
 
   constructor(
     private opts: {
@@ -144,6 +155,13 @@ export class UdpSensorSource implements SensorSource {
     this.acceptedThisSecond += 1;
 
     const frame = parseRigPayload(msg, now);
+
+    // Keep the raw text of recent packets with the verdict. A packet that
+    // arrives but does not parse is otherwise invisible — this is the
+    // difference between "the rig is silent" and "the rig is talking and we
+    // don't understand it", which are completely different problems in a gym.
+    this.recordRaw(msg, frame !== null, now);
+
     if (frame === null) return; // malformed → drop, never crash
     // out-of-order guard: keep the newest only
     if (frame.t < this.lastFrameT) return;
@@ -174,6 +192,28 @@ export class UdpSensorSource implements SensorSource {
     this.hzWindow.length = 0;
     this.lastFrameT = 0;
     this.setStatus('idle');
+  }
+
+  /** Recent packets exactly as they arrived, newest first (diagnostics). */
+  get recentPackets(): readonly RawPacket[] {
+    return this.rawLog;
+  }
+
+  /** How many packets arrived but could not be understood. */
+  get rejected(): number {
+    return this.rejectedCount;
+  }
+
+  private recordRaw(msg: Uint8Array | string, parsed: boolean, now: number): void {
+    if (!parsed) this.rejectedCount += 1;
+    let text: string;
+    try {
+      text = typeof msg === 'string' ? msg : new TextDecoder().decode(msg);
+    } catch {
+      text = `<${typeof msg === 'string' ? msg.length : msg.byteLength} undecodable bytes>`;
+    }
+    this.rawLog.unshift({ t: now, parsed, text: text.slice(0, RAW_TEXT_MAX) });
+    if (this.rawLog.length > RAW_LOG_MAX) this.rawLog.length = RAW_LOG_MAX;
   }
 
   /**

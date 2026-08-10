@@ -10,6 +10,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { color } from '@/src/theme/tokens';
 import { fontMap } from '@/src/theme/typography';
+import { watchRigConfig } from '@/src/sources/udp/rigConfig';
 import { purgeStaleClips } from '@/src/train/recording';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -36,6 +37,9 @@ export default function RootLayout() {
   useEffect(() => {
     void purgeStaleClips();
   }, []);
+
+  // the Rig's hardware conventions are user-adjustable; keep the engine synced
+  useEffect(() => watchRigConfig(), []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

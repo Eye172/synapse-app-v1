@@ -15,6 +15,7 @@ import { Chip } from '@/src/ui/Chip';
 import { GlassCard } from '@/src/ui/GlassCard';
 import { GridBackdrop } from '@/src/ui/GridBackdrop';
 import { HUDFrame, hudTint } from '@/src/ui/HUDFrame';
+import { PhoneAddress } from '@/src/ui/PhoneAddress';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { PrimaryButton } from '@/src/ui/PrimaryButton';
 import { StatReadout } from '@/src/ui/StatReadout';
@@ -205,6 +206,7 @@ export default function ConnectScreen() {
                   2 · Power the Rig. Its node joins the hotspot and streams here automatically.{'\n'}
                   3 · Nothing to pair, nothing leaves the phone.
                 </AppText>
+                <PhoneAddress />
                 <AppText variant="nano" color={color.warn}>
                   TIP · SET A STRONG HOTSPOT PASSWORD — THE DEFAULT FIRMWARE ONE IS WEAK
                 </AppText>

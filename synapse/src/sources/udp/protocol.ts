@@ -40,6 +40,22 @@ export const V2_QUAT_ORDER = ['r', 'i', 'j', 'k'] as const;
 /** The v1 payload in the original brief packed the scalar last. */
 const V1_QUAT_SCALAR_LAST = true;
 
+/**
+ * Runtime override for the compact form's component order. Firmware that
+ * packs the scalar last flips this from the Diagnostics screen — no rebuild,
+ * which matters when the only person holding the hardware is in a gym.
+ * Named quaternions (`{r,i,j,k}`) are unambiguous and ignore it.
+ */
+let v2ScalarLast = false;
+
+export function setV2QuatScalarLast(scalarLast: boolean): void {
+  v2ScalarLast = scalarLast;
+}
+
+export function getV2QuatScalarLast(): boolean {
+  return v2ScalarLast;
+}
+
 function finite(n: unknown): n is number {
   return typeof n === 'number' && Number.isFinite(n);
 }
@@ -101,7 +117,7 @@ function readQuatObject(raw: unknown): [number, number, number, number] | undefi
 
 /** Reads either quaternion spelling from a per-node object. */
 function readNodeQuat(entry: Record<string, unknown>): [number, number, number, number] | undefined {
-  return readQuatObject(entry.quaternions) ?? readQuatArray(entry.q, false);
+  return readQuatObject(entry.quaternions) ?? readQuatArray(entry.q, v2ScalarLast);
 }
 
 function decode(raw: string | Uint8Array): string | undefined {

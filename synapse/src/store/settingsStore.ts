@@ -24,6 +24,15 @@ export interface SettingsState {
    * between sessions.
    */
   rigCalibration: Record<string, [number, number, number, number]>;
+  /**
+   * Two hardware conventions that can only be confirmed against a real Rig.
+   * They live in settings, not in code, so a tester can fix them on the phone
+   * in the gym instead of waiting for a rebuild.
+   */
+  /** false = q is [r,i,j,k] (scalar first); true = [i,j,k,r] */
+  rigQuatScalarLast: boolean;
+  /** which local sensor axis runs along the body segment */
+  rigSegmentAxis: '+x' | '-x' | '+y' | '-y' | '+z' | '-z';
   set: (p: Partial<Omit<SettingsState, 'set'>>) => void;
 }
 
@@ -40,6 +49,8 @@ export const useSettingsStore = create<SettingsState>()(
       aiProvider: 'anthropic',
       onboardingDone: false,
       rigCalibration: {},
+      rigQuatScalarLast: false,
+      rigSegmentAxis: '+z',
       set: (p) => set(p),
     }),
     {

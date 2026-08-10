@@ -19,6 +19,7 @@ import { Chip } from '@/src/ui/Chip';
 import { GridBackdrop } from '@/src/ui/GridBackdrop';
 import { HUDFrame, hudTint } from '@/src/ui/HUDFrame';
 import { PressableScale } from '@/src/ui/PressableScale';
+import { RigTuningPanel } from '@/src/ui/RigTuningPanel';
 import { StatReadout } from '@/src/ui/StatReadout';
 
 type FaultMode = 'none' | 'rep3' | 'constant';
@@ -179,9 +180,12 @@ export default function DevScreen() {
           ) : null}
         </HUDFrame>
 
+        {/* everything needed to bring a real Rig up, on the phone */}
+        <RigTuningPanel />
+
         <HUDFrame tint={hudTint.dim} style={{ gap: 4 }}>
           <AppText variant="nano" color={color.textLo}>
-            {`RIG SEGMENTS · ${sensor?.protocol.toUpperCase() ?? '—'} · UNCALIBRATED REFERENCE`}
+            {`SIM SEGMENTS · ${sensor?.protocol.toUpperCase() ?? '—'} · UNCALIBRATED REFERENCE`}
           </AppText>
           {RIG_NODE_IDS.map((id) => {
             const seg = rigState?.segments[id];

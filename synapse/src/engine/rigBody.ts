@@ -43,12 +43,42 @@ import {
 } from './types';
 
 /** The one place hardware mounting is assumed. */
+export type MountAxis = '+x' | '-x' | '+y' | '-y' | '+z' | '-z';
+
+const AXIS_VECTORS: Record<MountAxis, Vec3> = {
+  '+x': { x: 1, y: 0, z: 0 },
+  '-x': { x: -1, y: 0, z: 0 },
+  '+y': { x: 0, y: 1, z: 0 },
+  '-y': { x: 0, y: -1, z: 0 },
+  '+z': { x: 0, y: 0, z: 1 },
+  '-z': { x: 0, y: 0, z: -1 },
+};
+
+/**
+ * Which sensor-local axis runs along the body segment, and which points out
+ * of the front of the body.
+ *
+ * This is the one thing about the hardware that cannot be derived — it
+ * depends on how the boards sit in their straps. It is therefore settable at
+ * runtime (Diagnostics → mount axis) so it can be fixed on the phone instead
+ * of in a rebuild. Anything derived from the *angle between two segments* —
+ * hip, shoulder, symmetry, lean — is unaffected by getting it wrong, as long
+ * as all five sensors are mounted alike.
+ */
 export const RIG_MOUNT = {
-  /** sensor-local axis that runs along its body segment */
-  segmentAxis: { x: 0, y: 0, z: 1 } as Vec3,
-  /** sensor-local axis that points out of the front of the body */
-  anteriorAxis: { x: 1, y: 0, z: 0 } as Vec3,
-} as const;
+  segmentAxis: AXIS_VECTORS['+z'] as Vec3,
+  anteriorAxis: AXIS_VECTORS['+x'] as Vec3,
+};
+
+/** Point the model at a different mounting without rebuilding. */
+export function setRigSegmentAxis(axis: MountAxis): void {
+  RIG_MOUNT.segmentAxis = AXIS_VECTORS[axis];
+  // keep the anterior axis perpendicular to whatever runs along the segment
+  RIG_MOUNT.anteriorAxis =
+    axis === '+x' || axis === '-x' ? AXIS_VECTORS['+z'] : AXIS_VECTORS['+x'];
+}
+
+export const MOUNT_AXES: MountAxis[] = ['+x', '-x', '+y', '-y', '+z', '-z'];
 
 /** Body proportions in normalized screen units, shared with the simulator. */
 const P = {
