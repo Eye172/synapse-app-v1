@@ -101,6 +101,8 @@ Contract details the parser enforces:
 
 ## Pointing a real Rig at it
 
+> **Field-testing with hardware?** Read [TESTING.md](TESTING.md) first — it covers building the APK (the rig link needs a native module Expo Go does not carry), the three things to verify in the first five minutes on real hardware, and what to ask the tester for.
+
 The firmware (see [`materials/base/main.py`](materials/base/main.py)) speaks UDP/JSON to the phone's hotspot gateway:
 
 1. Build the dev client (UDP needs a native module — Expo Go won't carry it):
