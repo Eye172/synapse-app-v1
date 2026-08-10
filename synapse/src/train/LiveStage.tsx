@@ -293,6 +293,9 @@ export function LiveStage({
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
   const worst = frame?.grade.worstLive ?? null;
+  // what is drawing the body *right now* — the bundle's choice can be
+  // overridden at runtime when a source stalls
+  const liveMeshSource = frame?.pose.source ?? sources.poseOrigin;
 
   return (
     <View style={{ flex: 1, backgroundColor: color.void }}>
@@ -333,6 +336,38 @@ export function LiveStage({
         <MeshView frame={frame ? { landmarks: frame.pose.landmarks, segments: frame.grade.segments, t: frame.t } : null} width={width} height={height} dimmed={paused} />
       </View>
 
+      {/* A simulated body must never be mistaken for the user's own. The Rig
+          can drop out mid-set and the Mesh keeps moving on scripted data —
+          honest for a demo, dangerous during a hardware test. If a real
+          source was expected and we are drawing the simulator instead, say so
+          in words nobody can miss. */}
+      {sources.poseOrigin !== 'sim' && liveMeshSource === 'sim' ? (
+        <View
+          style={{
+            position: 'absolute',
+            top: height * 0.30,
+            left: 24,
+            right: 24,
+            alignItems: 'center',
+            paddingVertical: 14,
+            paddingHorizontal: 16,
+            backgroundColor: 'rgba(255,194,75,0.14)',
+            borderWidth: 1.5,
+            borderColor: color.warn,
+            pointerEvents: 'none',
+          }}
+        >
+          <AppText variant="h3" color={color.warn} align="center">
+            SIMULATED BODY — NOT YOU
+          </AppText>
+          <AppText variant="nano" color={color.warn} align="center" style={{ marginTop: 4 }}>
+            {sources.poseOrigin === 'rig'
+              ? 'THE RIG STOPPED SENDING. NOTHING HERE IS MEASURED FROM YOU.'
+              : 'THE CAMERA STOPPED TRACKING. NOTHING HERE IS MEASURED FROM YOU.'}
+          </AppText>
+        </View>
+      ) : null}
+
       {/* frame brackets */}
       <View style={{ position: 'absolute', top: space.xl + 18, left: 10, right: 10, bottom: 96, pointerEvents: 'none' }}>
         <CornerBrackets size={22} tint={alert ? 'rgba(255,59,92,0.8)' : 'rgba(33,240,220,0.4)'} thickness={1.5} />
@@ -352,7 +387,7 @@ export function LiveStage({
       >
         <AppText variant="nano" color={color.textMid}>
           {[
-            `MESH · ${MESH_SOURCE_LABEL[sources.poseOrigin]}`,
+            `MESH · ${MESH_SOURCE_LABEL[liveMeshSource]}`,
             cameraLive ? (cameraReady ? 'CAM LIVE' : 'CAM WAKING') : null,
             aiKey ? null : 'AI OFFLINE',
           ]

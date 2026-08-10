@@ -2,7 +2,7 @@ import { useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View } from 'react-native';
-import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
+import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getAiKey } from '@/src/coach/aiKeyStore';
@@ -189,7 +189,11 @@ export default function TrainScreen() {
             </PressableScale>
           </View>
         ) : null}
-        <Animated.View key={stage} entering={FadeIn.duration(220)} exiting={FadeOut.duration(120)} style={{ flex: 1 }}>
+        {/* Entering only. An exit animation keeps the outgoing stage mounted
+            until it finishes, and these stages own a camera, a recording and
+            a running engine — two of them alive at once is not a transition,
+            it is a leak. */}
+        <Animated.View key={stage} entering={FadeIn.duration(220)} style={{ flex: 1 }}>
           {stageView}
         </Animated.View>
       </View>
