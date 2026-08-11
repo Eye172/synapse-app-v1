@@ -1,3 +1,6 @@
+import type { EventSubscription } from 'expo-modules-core';
+
+import RigUdp from '@/modules/rig-udp';
 import type { SensorFrame } from '@/src/engine/types';
 import { Emitter, type SensorSource, type SourceStatus, type Unsubscribe } from '@/src/sources/types';
 
@@ -9,9 +12,9 @@ import { parseRigPayload } from './protocol';
  * as untrusted; missing packets → SEARCHING, silence after activity → LOST
  * with auto-recovery; nothing here can crash the app (deal-breakers 5, 8).
  *
- * react-native-udp is a native module — present in dev builds, absent in
- * Expo Go and on the web, where this source reports `unavailable` and the
- * app reports the link as unavailable.
+ * The receiver is `modules/rig-udp`, a local Expo module. It exists only in a
+ * real build — on the web and in Expo Go this source reports `unavailable`
+ * and the app says the link cannot be opened here.
  */
 
 export interface UdpSocketLike {
@@ -24,16 +27,56 @@ export interface UdpSocketLike {
 
 export type UdpSocketFactory = () => UdpSocketLike | null;
 
+/**
+ * Adapts the native module to the node-flavoured socket shape this class was
+ * written against, which is also the shape the tests drive. The native `bind`
+ * is asynchronous and can reject; a rejection is routed to the same 'error'
+ * path as a socket that dies later, so the caller has one thing to handle.
+ */
 function defaultSocketFactory(): UdpSocketLike | null {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const dgram = require('react-native-udp');
-    const createSocket = dgram?.createSocket ?? dgram?.default?.createSocket;
-    if (typeof createSocket !== 'function') return null;
-    return createSocket({ type: 'udp4' }) as UdpSocketLike;
-  } catch {
-    return null;
-  }
+  const native = RigUdp;
+  if (native === null) return null;
+
+  const subs: EventSubscription[] = [];
+  let onError: ((e: unknown) => void) | null = null;
+  let closed = false;
+
+  const raise = (e: unknown): void => {
+    const cb = onError;
+    onError = null; // 'error' is once-only: the link is torn down on the first
+    cb?.(e);
+  };
+
+  const dropSubs = (): void => {
+    for (const s of subs) s.remove();
+    subs.length = 0;
+  };
+
+  return {
+    bind(port) {
+      native.bind(port).catch(raise);
+    },
+    on(_event, cb) {
+      subs.push(native.addListener('onMessage', ({ data }) => cb(data)));
+    },
+    once(_event, cb) {
+      onError = cb;
+      subs.push(native.addListener('onError', ({ message }) => raise(new Error(message))));
+    },
+    removeAllListeners() {
+      dropSubs();
+      onError = null;
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      dropSubs();
+      onError = null;
+      // the native side is already gone if bind never succeeded; either way a
+      // failed close must not surface as an unhandled rejection
+      native.close().catch(() => {});
+    },
+  };
 }
 
 export const RIG_UDP_PORT = 1234;
@@ -76,15 +119,12 @@ export class UdpSensorSource implements SensorSource {
     } = {},
   ) {}
 
+  /**
+   * There is one native socket, not one per caller, so this must never probe
+   * by opening and closing one — that would shut the live link down.
+   */
   static available(): boolean {
-    const s = defaultSocketFactory();
-    if (s === null) return false;
-    try {
-      s.close();
-    } catch {
-      // probe socket cleanup is best-effort
-    }
-    return true;
+    return RigUdp !== null;
   }
 
   /** measured incoming frame rate, Hz */

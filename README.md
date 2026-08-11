@@ -15,7 +15,7 @@ Synapse grades what its sensors can actually see. If neither the Rig nor the cam
 
 This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
 
-A simulator does exist — it drives the 114-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
+A simulator does exist — it drives the 120-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
 
 ### Run it
 
@@ -48,7 +48,7 @@ node scripts/send-test-packet.js <phone-ip> --stream
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup (no rebuild to fix mount conventions) | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by 114 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by 120 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
@@ -100,7 +100,7 @@ Contract details the parser enforces:
 
 The firmware (see [`materials/base/main.py`](materials/base/main.py)) speaks UDP/JSON to the phone's hotspot gateway:
 
-1. Build the dev client (UDP needs a native module — Expo Go won't carry it):
+1. Build the dev client (the UDP receiver is a native module — Expo Go won't carry it):
    ```bash
    cd synapse && npx expo run:android        # needs JDK 17 + Android SDK
    ```
@@ -147,11 +147,12 @@ synapse/
 │   ├── store/              # zustand: settings, history (metrics only), connection
 │   ├── theme/ + ui/        # "Biometric HUD" tokens and component kit
 │   └── shims/              # metro shims (node:* → empty on native)
+├── modules/rig-udp/        # local Expo module: the native UDP receiver (Kotlin, ~100 lines)
 ├── scripts/                # asset generator, Rig packet emulator
 └── assets/                 # generated brand assets + bundled Rig footage
 ```
 
-Verification: `npm run typecheck` · `npm test` (114 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+Verification: `npm run typecheck` · `npm test` (120 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
 
 ### Non-negotiables, enforced in code
 

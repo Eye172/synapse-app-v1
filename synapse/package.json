@@ -4,15 +4,6 @@
   "description": "Synapse — every rep, supervised. Rig companion app.",
   "main": "index.js",
   "private": true,
-  "expo": {
-    "doctor": {
-      "reactNativeDirectoryCheck": {
-        "exclude": [
-          "react-native-udp"
-        ]
-      }
-    }
-  },
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
@@ -20,7 +11,8 @@
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "gen:assets": "node scripts/gen-assets.js",
-    "rig:test-packet": "node scripts/send-test-packet.js"
+    "rig:test-packet": "node scripts/send-test-packet.js",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
@@ -53,7 +45,6 @@
     "react-native-reanimated": "~4.1.1",
     "react-native-safe-area-context": "~5.6.0",
     "react-native-screens": "~4.16.0",
-    "react-native-udp": "^4.1.7",
     "react-native-web": "^0.21.0",
     "react-native-worklets": "0.5.1",
     "zustand": "^5.0.14"

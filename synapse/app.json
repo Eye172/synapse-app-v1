@@ -7,7 +7,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "backgroundColor": "#06070B",
     "primaryColor": "#C8F03C",
     "android": {
