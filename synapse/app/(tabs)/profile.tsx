@@ -356,15 +356,7 @@ export default function ProfileScreen() {
                 </PressableScale>
               }
             />
-            <Divider />
-            <Row
-              label="Demo mode"
-              sub="RUN EVERYTHING ON THE SIMULATOR"
-              right={
-                <AppSwitch value={settings.demoModeForced} onValueChange={(v) => settings.set({ demoModeForced: v })} accessibilityLabel='Demo mode' />
-              }
-            />
-          </GlassCard>
+            </GlassCard>
 
           <GlassCard>
             <AppText variant="nano" color={color.textLo} style={{ marginBottom: 4 }}>
@@ -380,17 +372,17 @@ export default function ProfileScreen() {
 
           <GlassCard>
             <AppText variant="nano" color={color.textLo} style={{ marginBottom: 4 }}>
-              SYSTEM
+              HARDWARE
             </AppText>
             <Row
-              label="Diagnostics"
-              sub="LIVE ENGINE PROBES · SIM STREAM"
+              label="Sensor setup"
+              sub="MOUNTING, ORIENTATION, SIGNAL"
               right={
                 <AppText variant="h3" color={color.textLo}>
                   ›
                 </AppText>
               }
-              onPress={() => router.push('/dev')}
+              onPress={() => router.push('/sensor-setup')}
             />
           </GlassCard>
 

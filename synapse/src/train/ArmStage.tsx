@@ -19,12 +19,11 @@ export type SetDuration = (typeof DURATIONS)[number];
 export interface TrainConfig {
   record: boolean;
   durationSec: SetDuration;
-  demoFault: boolean;
 }
 
 /**
  * Arm the set: camera permission, record toggle + fixed-stop duration bar
- * (§2.5), the demo fault injector, and honest source status lines.
+ * (§2.5), and honest source status lines.
  */
 export function ArmStage({
   ex,
@@ -57,18 +56,18 @@ export function ArmStage({
         </AppText>
         <StatusLine
           k="MESH"
-          v={mode === 'linked' ? 'RIG + SIM POSE' : 'SIMULATOR'}
-          tint={color.mesh}
+          v={mode === 'linked' ? 'RIG · FULL BODY' : camGranted ? 'CAMERA' : 'NO SOURCE'}
+          tint={mode === 'linked' ? color.mesh : camGranted ? color.mesh : color.textLo}
         />
         <StatusLine
           k="RIG"
           v={mode.toUpperCase()}
-          tint={mode === 'linked' ? color.acid : mode === 'sim' ? color.blue : color.textLo}
+          tint={mode === 'linked' ? color.acid : mode === 'searching' ? color.warn : color.textLo}
         />
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <StatusLine
             k="CAMERA"
-            v={camGranted ? 'GRANTED' : camDenied ? 'DENIED · DEMO VISUALS' : 'NOT REQUESTED'}
+            v={camGranted ? 'GRANTED' : camDenied ? 'DENIED IN SYSTEM SETTINGS' : 'NOT REQUESTED'}
             tint={camGranted ? color.ok : camDenied ? color.warn : color.textLo}
           />
           {!camGranted && !camDenied ? (
@@ -148,21 +147,6 @@ export function ArmStage({
             })}
           </View>
         </View>
-      </GlassCard>
-
-      <GlassCard style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-        <View style={{ flex: 1, paddingRight: 10 }}>
-          <AppText variant="bodyMed">Demo fault · rep 3</AppText>
-          <AppText variant="nano" color={color.textLo} style={{ marginTop: 2 }}>
-            SIMULATOR INJECTS A FORM BREAK SO YOU SEE THE RED
-          </AppText>
-        </View>
-        <Switch
-          value={config.demoFault}
-          onValueChange={(v) => onConfig({ ...config, demoFault: v })}
-          trackColor={{ false: 'rgba(255,255,255,0.12)', true: 'rgba(255,194,75,0.5)' }}
-          thumbColor={config.demoFault ? color.warn : color.textLo}
-        />
       </GlassCard>
 
       {ex.riskLevel === 3 ? (

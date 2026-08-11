@@ -296,6 +296,10 @@ export function LiveStage({
   // what is drawing the body *right now* — the bundle's choice can be
   // overridden at runtime when a source stalls
   const liveMeshSource = frame?.pose.source ?? sources.poseOrigin;
+  // The Rig drew this body; if it stops sending, the Mesh holds its last
+  // shape. A frozen skeleton reads exactly like a still one — the lifter has
+  // to be told the difference, mid-set, without looking away from the bar.
+  const rigLinkLost = sources.poseOrigin === 'rig' && linkMode !== 'linked';
 
   return (
     <View style={{ flex: 1, backgroundColor: color.void }}>
@@ -336,12 +340,12 @@ export function LiveStage({
         <MeshView frame={frame ? { landmarks: frame.pose.landmarks, segments: frame.grade.segments, t: frame.t } : null} width={width} height={height} dimmed={paused} />
       </View>
 
-      {/* A simulated body must never be mistaken for the user's own. The Rig
-          can drop out mid-set and the Mesh keeps moving on scripted data —
-          honest for a demo, dangerous during a hardware test. If a real
-          source was expected and we are drawing the simulator instead, say so
-          in words nobody can miss. */}
-      {sources.poseOrigin !== 'sim' && liveMeshSource === 'sim' ? (
+      {/* The instrument stopped measuring. Whether the link dropped or a
+          development build slipped the simulator in behind a real source, the
+          body on screen is no longer the lifter's — and a Mesh that looks
+          alive while nothing is being measured is the one failure mode that
+          can get somebody hurt. Say it in words nobody can miss. */}
+      {rigLinkLost || (sources.poseOrigin !== 'sim' && liveMeshSource === 'sim') ? (
         <View
           style={{
             position: 'absolute',
@@ -358,12 +362,14 @@ export function LiveStage({
           }}
         >
           <AppText variant="h3" color={color.warn} align="center">
-            SIMULATED BODY — NOT YOU
+            {rigLinkLost ? 'RIG LINK LOST' : 'NOT YOUR BODY'}
           </AppText>
           <AppText variant="nano" color={color.warn} align="center" style={{ marginTop: 4 }}>
-            {sources.poseOrigin === 'rig'
-              ? 'THE RIG STOPPED SENDING. NOTHING HERE IS MEASURED FROM YOU.'
-              : 'THE CAMERA STOPPED TRACKING. NOTHING HERE IS MEASURED FROM YOU.'}
+            {rigLinkLost
+              ? 'THE MESH IS FROZEN. THIS SET IS NO LONGER BEING GRADED.'
+              : sources.poseOrigin === 'rig'
+                ? 'THE RIG STOPPED SENDING. NOTHING HERE IS MEASURED FROM YOU.'
+                : 'THE CAMERA STOPPED TRACKING. NOTHING HERE IS MEASURED FROM YOU.'}
           </AppText>
         </View>
       ) : null}

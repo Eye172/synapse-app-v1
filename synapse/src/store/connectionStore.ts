@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 /** Rig link state shown by the connection chip (§2.3). */
-export type LinkMode = 'linked' | 'sim' | 'searching' | 'offline';
+export type LinkMode = 'linked' | 'searching' | 'offline';
 
 export interface ConnectionState {
   mode: LinkMode;
@@ -17,7 +17,7 @@ export interface ConnectionState {
 }
 
 export const useConnectionStore = create<ConnectionState>((set) => ({
-  mode: 'sim',
+  mode: 'offline',
   nodeCount: 0,
   hz: 0,
   battery: null,
@@ -27,7 +27,6 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
 
 export const LINK_LABEL: Record<LinkMode, string> = {
   linked: 'LINKED',
-  sim: 'SIM',
   searching: 'SEARCHING',
   offline: 'OFFLINE',
 };

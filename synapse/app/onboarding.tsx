@@ -16,7 +16,7 @@ import { PrimaryButton } from '@/src/ui/PrimaryButton';
 
 /**
  * First run (§2.4-A): three slabs — what the Rig is, putting it on, how the
- * link works — then straight into Connect or Demo Mode. Never shown again.
+ * link works — then straight into Connect. Never shown again.
  */
 export default function OnboardingScreen() {
   const router = useRouter();
@@ -39,9 +39,9 @@ export default function OnboardingScreen() {
           <AppText variant="nano" color={color.acid}>
             · SYNAPSE · FIRST LINK ·
           </AppText>
-          <PressableScale onPress={() => finish('/')} accessibilityRole="button" accessibilityLabel="Skip — use demo mode">
+          <PressableScale onPress={() => finish('/')} accessibilityRole="button" accessibilityLabel="Set up later">
             <AppText variant="nano" color={color.textMid}>
-              SKIP → DEMO
+              LATER
             </AppText>
           </PressableScale>
         </View>
@@ -59,7 +59,7 @@ export default function OnboardingScreen() {
             <HUDFrame tint={hudTint.mesh} style={{ alignItems: 'center', paddingVertical: space.lg, gap: 10 }}>
               <MiniMesh exercise={squat} size={170} cyclePos={0.35} />
               <AppText variant="nano" color={color.textLo}>
-                MESH · 13 NODES · LIVE GRADING
+                FIVE SENSORS · ONE BODY · LIVE GRADING
               </AppText>
             </HUDFrame>
             <AppText variant="h1" style={{ marginTop: space.md }}>
@@ -75,7 +75,7 @@ export default function OnboardingScreen() {
           <View style={{ width, paddingHorizontal: space.gutter }}>
             <HUDFrame tint={hudTint.acid} style={{ paddingVertical: space.lg, gap: 12, alignItems: 'center' }}>
               <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-                <Chip label="SPINE NODE · UPPER BACK" tint={color.mesh} dot />
+                <Chip label="BACK · ARMS · LEGS" tint={color.mesh} dot />
                 <Chip label="STRAP SNUG · SENSOR FLAT" tint={color.textMid} />
                 <Chip label="POWER ON · LED PULSES" tint={color.acid} />
               </View>
@@ -90,8 +90,8 @@ export default function OnboardingScreen() {
               Put the Rig on
             </AppText>
             <AppText variant="body" style={{ marginTop: 6 }}>
-              Strap the spine node across your upper back — snug, sensor flat against the spine. Power it on and the
-              node joins the session by itself. More nodes, more coverage; the camera Mesh fills the rest.
+              Strap each sensor flat against the segment it measures — back, both arms, both legs. Power the Rig on and
+              every node joins the session by itself. Together the five place your whole body.
             </AppText>
           </View>
 
@@ -112,7 +112,7 @@ export default function OnboardingScreen() {
             </AppText>
             <AppText variant="body" style={{ marginTop: 6 }}>
               Name your phone's hotspot “Synapse” and the Rig streams straight to the app — no cloud, no account, no
-              pairing dance. No Rig yet? Demo Mode runs the entire experience on the simulator.
+              pairing dance. Nothing about your training ever leaves this phone.
             </AppText>
           </View>
         </ScrollView>
@@ -147,9 +147,9 @@ export default function OnboardingScreen() {
           ) : (
             <>
               <PrimaryButton title="Connect the Rig" sub="HOTSPOT · SEARCH · CALIBRATE" onPress={() => finish('/connect')} />
-              <PressableScale onPress={() => finish('/')} accessibilityRole="button" accessibilityLabel="Use demo mode">
+              <PressableScale onPress={() => finish('/')} accessibilityRole="button" accessibilityLabel="Set up later">
                 <AppText variant="micro" color={color.textMid} align="center" style={{ paddingVertical: 10 }}>
-                  USE DEMO MODE — NO RIG, NO CAMERA, FULL LOOP
+                  SET UP LATER
                 </AppText>
               </PressableScale>
             </>

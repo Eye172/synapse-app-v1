@@ -17,7 +17,7 @@ export interface FaultScript {
   intensity: number;
 }
 
-/** The demo fault used when the injector is armed without configuration. */
+/** The fault a test injects when none is specified. */
 export function defaultFaultScript(ex: ExerciseSpec): FaultScript {
   const kind: FaultKind =
     ex.id === 'back_squat' ? 'kneeValgus'

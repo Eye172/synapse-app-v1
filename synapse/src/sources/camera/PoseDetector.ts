@@ -8,7 +8,7 @@ import type { Landmark } from '@/src/engine/types';
  * The concrete detector is a native capability (ML Kit / MediaPipe via a
  * vision-camera frame processor) that only exists in a dev build. In Expo
  * Go, on the web, or when the module is missing, detection is unavailable
- * and the app runs on the simulator — Demo Mode is the fallback, never a
+ * and the app says so — a missing detector is reported, never
  * crash (deal-breakers 3, 8).
  */
 export interface PoseDetector {
@@ -33,7 +33,7 @@ export function registerPoseDetector(f: PoseDetectorFactory): void {
   registered = f;
 }
 
-/** Probe for a usable detector; null means "run Demo Mode pose". */
+/** Probe for a usable detector; null means the camera cannot place a body. */
 export function loadPoseDetector(): PoseDetector | null {
   if (registered?.isAvailable()) {
     try {

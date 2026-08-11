@@ -19,7 +19,6 @@ import { PressableScale } from './PressableScale';
 
 const MODE_TINT = {
   linked: color.acid,
-  sim: color.blue,
   searching: color.warn,
   offline: color.textLo,
 } as const;
@@ -43,8 +42,7 @@ export function ConnectionChip() {
   }, [mode, pulse]);
   const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
-  const detail =
-    mode === 'linked' ? ` · ${nodeCount} NODE${nodeCount === 1 ? '' : 'S'} · ${hz}HZ` : mode === 'sim' ? ' · 30HZ' : '';
+  const detail = mode === 'linked' ? ` · ${nodeCount}/5 · ${hz}HZ` : '';
 
   return (
     <PressableScale

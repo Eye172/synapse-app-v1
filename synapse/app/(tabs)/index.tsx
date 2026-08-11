@@ -47,8 +47,8 @@ export default function HomeScreen() {
     mode === 'linked'
       ? `RIG LINKED · ${nodeCount}/5 NODES`
       : mode === 'searching'
-        ? 'SEARCHING FOR RIG · DEMO READY'
-        : 'DEMO MODE · NO RIG NEEDED';
+        ? 'SEARCHING FOR RIG'
+        : 'RIG NOT CONNECTED';
 
   const safetyTint = safety === null ? color.textLo : safety >= 75 ? color.acid : safety >= 50 ? color.warn : color.error;
 

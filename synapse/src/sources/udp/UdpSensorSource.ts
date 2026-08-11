@@ -11,7 +11,7 @@ import { parseRigPayload } from './protocol';
  *
  * react-native-udp is a native module — present in dev builds, absent in
  * Expo Go and on the web, where this source reports `unavailable` and the
- * app stays in Demo Mode.
+ * app reports the link as unavailable.
  */
 
 export interface UdpSocketLike {

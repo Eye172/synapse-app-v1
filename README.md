@@ -9,9 +9,15 @@ This repository contains the **Rig companion app** — a real, screen-recordable
 
 ---
 
-## Run it in 2 minutes (Demo Mode — no Rig, no camera, no API key)
+## There is no demo mode
 
-Demo Mode is not a stub: the entire training loop — form grading, rep counting, safety alerts, coaching — runs on a physics-consistent simulator with a deterministic fault injector. It is how "fully working" is proven.
+Synapse grades what its sensors can actually see. If neither the Rig nor the camera is available, a set **does not start** — the app says `NOTHING TO MEASURE WITH` and offers to connect. If the Rig drops mid-set, the Mesh freezes and a full-width `RIG LINK LOST` banner says the set is no longer being graded.
+
+This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
+
+A simulator does exist — it drives the 114-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
+
+### Run it
 
 ```bash
 cd synapse
@@ -19,28 +25,14 @@ npm install
 npx expo start --offline        # add --max-workers 1 on low-RAM machines
 ```
 
-Then press **`a`** to launch on a connected Android device/emulator (Expo Go works for Demo Mode), or **`w`** for the browser preview.
+Press **`a`** for a connected Android device/emulator, **`w`** for the browser preview. To exercise the full loop you need a source: a Rig on the hotspot, a camera-equipped device, or a dev build (where the simulator stands in). To feed the app real packets without hardware:
+
+```bash
+node scripts/send-test-packet.js <phone-ip> --stream
+```
 
 > **Windows note:** if Metro dies near the end of a bundle, the machine is RAM-starved — use
 > `NODE_OPTIONS=--max-old-space-size=3072 npx expo start --offline --max-workers 1`.
-
-### The 60-second demo script
-
-Read this while screen-recording; every line maps 1:1 to an on-screen beat.
-
-| t | Say | Do / See |
-|---|-----|----------|
-| 0:00 | "This is Synapse. Every rep, supervised." | Home: dark HUD, acid **START TRAINING**, `SIM` chip top-right. |
-| 0:05 | "No hardware today — the whole loop runs on the simulator." | Tap **START TRAINING** → pick **Back Squat**. |
-| 0:12 | "Every lift ships with a real form lesson…" | Tutorial: Rig footage plays. Tap **Continue**. |
-| 0:18 | "…and the set is armed here: sources, recording, duration." | Arm screen: `MESH SIMULATOR / RIG SIM`, duration bar **15·30·60·90s**, *Demo fault · rep 3* ON. Tap **Begin positioning**. |
-| 0:26 | "The ghost shows the start position — the Mesh has to step into it." | Acid ghost + turquoise body walks in → ring closes → **POSITION LOCKED**. |
-| 0:34 | "Live set. Left rail: angle, tempo, rep count, symmetry." | Live HUD: Mesh squatting, big acid rep counter ticking. |
-| 0:42 | "Watch rep three — the simulator injects a knee fault." | Knees + thighs flash **red**, fault chip appears, coach speaks *"Knees out."*, safety banner: **SAFETY · KNEE**. |
-| 0:50 | "Every number in the report traces to the rule engine — nothing is invented." | Tap **STOP** → Report: technique ring, per-rule verdicts (`BROKE · REP 3`), coach paragraph. |
-| 0:58 | "Metrics save. Video never does." | Tap **Save & finish** → Progress shows the session. |
-
-*(With recording enabled on a camera-equipped device, the loop inserts the REVIEW step: scrub the clip with fault markers, then watch it get hard-deleted the moment you leave.)*
 
 ---
 
@@ -50,13 +42,13 @@ Read this while screen-recording; every line maps 1:1 to an on-screen beat.
 |---|---|
 | Full training loop: select → tutorial → arm → position-lock → live set → ephemeral review → report | BLE transport + auto-pairing |
 | Deterministic **form-rule engine**: continuous severity grading, safety alerts, hysteresis rep counting, tempo & symmetry | Per-joint quaternions (a second IMU below each knee/elbow) |
-| **The Mesh**: Skia skeleton with backbone, ghost alignment, fault tinting — **drawn by the Rig itself** via forward kinematics, or by camera/sim | Cloud accounts, program sync, coach-shared programs |
+| **The Mesh**: Skia skeleton with backbone, ghost alignment, fault tinting — **drawn by the Rig itself** via forward kinematics, or by the camera | Cloud accounts, program sync, coach-shared programs |
 | **Rig link**: UDP `:1234`, five-node quaternion protocol v2 (both wire forms) + legacy payloads, connect wizard, per-node calibration | Real-time interruptible voice coaching |
 | **AI Coach**: RuleCoach always-on (offline); optional Claude coach (`claude-haiku-4-5` in-set ≤8 words, `claude-sonnet-5` debrief) with hard no-fabrication guards | PT / clinical mode |
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
-| Progress trends, achievements, kit manager, onboarding, Demo Mode everywhere | Social, marketplace, Play Billing, iOS |
+| Progress trends, achievements, kit manager, onboarding, on-phone sensor setup (no rebuild to fix mount conventions) | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by 109 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by 114 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
@@ -113,7 +105,7 @@ The firmware (see [`materials/base/main.py`](materials/base/main.py)) speaks UDP
    cd synapse && npx expo run:android        # needs JDK 17 + Android SDK
    ```
 2. On the phone: enable the hotspot, name it **`Synapse`** (set a strong password — the firmware default is weak).
-3. Power the Rig. In the app: **Profile → Kit → Connect** → the wizard walks `SEARCH → NODES → CALIBRATE → LINKED` (hold neutral 3 s to zero the spine reference).
+3. Power the Rig. In the app: **Profile → HARDWARE → Synapse Rig** → the wizard walks `SEARCH → NODES → CALIBRATE → LINKED` (hold neutral 3 s to zero the five reference quaternions).
 4. No hardware handy? Emulate the Rig from this repo:
    ```bash
    cd synapse
@@ -122,11 +114,13 @@ The firmware (see [`materials/base/main.py`](materials/base/main.py)) speaks UDP
    node scripts/send-test-packet.js <phone-ip> --stream --compact   # the array form
    ```
 
-When LINKED, Rig angles are authoritative for the spine; the camera/sim Mesh covers everything else. The wizard, staleness handling (`SEARCHING`/`LOST` auto-recovery), and hostile-input hardening are unit-tested against the exact firmware payloads.
+When LINKED the Rig is the instrument: five IMUs place the whole body, so it both grades and draws the Mesh. The wizard, staleness handling (`SEARCHING`/`LOST` auto-recovery), and hostile-input hardening are unit-tested against the exact firmware payloads.
+
+**Mount conventions are fixed on the phone, not in a rebuild.** Quaternion component order (`[r,i,j,k]` vs `[i,j,k,r]`) and which board axis runs along the segment are toggles in **Profile → HARDWARE → Sensor setup**, with live per-segment directions that turn green when the convention is right. A tester with an unknown firmware build converges in about twenty seconds.
 
 ### Real camera pose (dev build)
 
-The Mesh's camera path ships behind a seam: `CameraPoseSource` + a `PoseDetector` registry with an automatic, honest fallback to the simulator (never a crash, never fake tracking). To light it up on-device, install a pose landmarker (e.g. an MLKit pose module), then register it at startup:
+The Mesh's camera path ships behind a seam: `CameraPoseSource` + a `PoseDetector` registry. With no detector registered the camera reports unavailable and the app says so — it never invents tracking. To light it up on-device, install a pose landmarker (e.g. an MLKit pose module), then register it at startup:
 
 ```ts
 import { registerPoseDetector } from '@/src/sources/camera/CameraPoseSource';
@@ -143,10 +137,10 @@ registerPoseDetector(myMlkitAdapter); // returns 33 landmarks; frames never leav
 
 ```
 synapse/
-├── app/                    # expo-router: tabs, train modal, connect wizard, onboarding, dev probes
+├── app/                    # expo-router: tabs, train modal, connect wizard, onboarding, sensor setup
 ├── src/
 │   ├── engine/             # THE TRUTH: rule engine, rep counter, pose→metric derivation, fusion, set session
-│   ├── sources/            # the seams: sim (kinematics+timeline), camera (detector registry), udp (protocol+link)
+│   ├── sources/            # the seams: udp (protocol+link+rig pose), camera (detector registry), sim (__DEV__/tests only)
 │   ├── coach/              # RuleCoach (deterministic) + LLMCoach (Claude, breakpoints only) + TTS/haptics
 │   ├── data/               # 6-exercise seed (full rule specs), tutorial clips, achievements
 │   ├── train/              # the training-loop stages (arm/position/live/review/report) + ephemeral recording
@@ -157,13 +151,13 @@ synapse/
 └── assets/                 # generated brand assets + bundled Rig footage
 ```
 
-Verification: `npm run typecheck` · `npm test` (74 tests: engine math, rep hysteresis, protocol hostility, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+Verification: `npm run typecheck` · `npm test` (114 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
 
 ### Non-negotiables, enforced in code
 
 - **Video is ephemeral.** Recordings live in the app-private cache, are hard-deleted on every exit path from Review (continue/back/background/unmount), never touch the gallery, never upload. History stores numbers.
 - **Nothing is fabricated.** Only the deterministic rule engine produces grades, reps, alerts. Claude may only rephrase engine output; over-spec output is discarded for the deterministic cue. Missing data reads **NO DATA**, never a guess.
-- **Demo Mode is total.** Every screen and the full loop run with no Rig, no camera, no key, no network.
+- **No pretend workouts.** With no instrument, the set refuses to start; when the instrument drops mid-set, the screen says so. The simulator is `__DEV__`-gated and cannot reach a user's build.
 - **The UI never touches hardware.** Everything flows through `SensorSource` / `PoseSource` / `CoachProvider`.
 
 ## Play readiness

@@ -6,10 +6,10 @@ import { generatePose } from './kinematics';
 import type { SimTimeline } from './simTimeline';
 
 /**
- * The simulated Rig (§2.10). It emits the *same* five-node quaternion frames
- * the real exoskeleton does, derived from the simulator's own body — so Demo
- * Mode exercises the production protocol, calibration and body-model code
- * rather than a parallel shortcut.
+ * The simulated Rig. It emits the *same* five-node quaternion frames the real
+ * exoskeleton does, derived from the simulator's own body, so tests exercise
+ * the production protocol, calibration and body model rather than a parallel
+ * shortcut. It is a development instrument and is absent from release builds.
  */
 
 /** Neutral direction of each segment in body coords, matching rigBody. */

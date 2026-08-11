@@ -38,7 +38,7 @@ class RigLinkManager {
         else if (s === 'active') store.set({ mode: 'linked' });
         else if (s === 'lost') store.set({ mode: 'searching' });
         else if (s === 'unavailable' || s === 'idle') {
-          store.set({ mode: 'sim', nodeCount: 0, hz: 0 });
+          store.set({ mode: 'offline', nodeCount: 0, hz: 0 });
         }
       }),
       src.onFrame((f: SensorFrame) => {
@@ -66,7 +66,7 @@ class RigLinkManager {
     this.chipTimer = null;
     this.source?.stop();
     this.source = null;
-    useConnectionStore.getState().set({ mode: 'sim', nodeCount: 0, hz: 0 });
+    useConnectionStore.getState().set({ mode: 'offline', nodeCount: 0, hz: 0 });
   }
 }
 

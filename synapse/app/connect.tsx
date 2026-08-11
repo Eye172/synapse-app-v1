@@ -33,7 +33,7 @@ const NODE_LABEL: Record<RigNodeId, string> = {
 /**
  * Connect wizard (§2.4-A, §2.9): the phone opens a hotspot named "Synapse",
  * the Rig's nodes join it and stream UDP to :1234. SEARCHING → NODES FOUND →
- * CALIBRATE → LINKED, with Demo Mode always one tap away.
+ * CALIBRATE → LINKED.
  */
 export default function ConnectScreen() {
   const router = useRouter();
@@ -138,17 +138,13 @@ export default function ConnectScreen() {
           <>
             <HUDFrame tint={hudTint.blue} style={{ gap: 8 }}>
               <AppText variant="nano" color={color.blue}>
-                · UDP LINK NEEDS THE DEV BUILD ·
+                · SENSOR LINK UNAVAILABLE HERE ·
               </AppText>
               <AppText variant="body">
-                The Rig speaks raw UDP, which this runtime can’t open (Expo Go and the web preview have no socket
-                access). Install the development build on your phone and this wizard lights up for real.
-              </AppText>
-              <AppText variant="monoBody" color={color.textLo}>
-                {`npx expo run:android  →  rig streams to :${RIG_UDP_PORT}`}
+                This copy of the app is running in a sandbox that cannot open a network socket. Install the released app on your phone and the Rig connects normally.
               </AppText>
             </HUDFrame>
-            <PrimaryButton title="Use demo mode" sub="EVERYTHING WORKS WITHOUT THE RIG" onPress={() => router.back()} />
+            <PrimaryButton title="Back" onPress={() => router.back()} />
           </>
         ) : (
           <>
@@ -294,9 +290,9 @@ export default function ConnectScreen() {
             ) : null}
 
             {step !== 'linked' ? (
-              <PressableScale onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Skip — use demo mode">
+              <PressableScale onPress={() => router.back()} accessibilityRole="button" accessibilityLabel="Set up later">
                 <AppText variant="micro" color={color.textMid} align="center" style={{ paddingVertical: 8 }}>
-                  SKIP — USE DEMO MODE
+                  SET UP LATER
                 </AppText>
               </PressableScale>
             ) : null}

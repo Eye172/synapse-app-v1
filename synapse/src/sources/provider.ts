@@ -1,5 +1,5 @@
 import { RigCalibration } from '@/src/engine/rigBody';
-import type { ExerciseSpec, PoseFrame } from '@/src/engine/types';
+import type { ExerciseSpec } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
@@ -8,13 +8,12 @@ import { SimSensorSource } from './sim/SimSensorSource';
 import { SimTimeline, defaultFaultScript, type FaultScript } from './sim/simTimeline';
 import { RigPoseSource } from './udp/RigPoseSource';
 import { rigLink, storedCalibration } from './udp/rigLink';
-import { Emitter, type PoseSource, type SensorSource, type SourceStatus, type Unsubscribe } from './types';
+import type { PoseSource, SensorSource } from './types';
 
 /**
- * Chooses the set's sources in exactly one place (§2.6, §2.10):
- *   camera pose when it is truly available, simulator otherwise,
- *   sim Rig until the real UDP link lands (PASS 4 swaps it in when LINKED).
- * The UI never knows which one it got — that is the whole point.
+ * Chooses the set's instrument in exactly one place (§2.6): the linked Rig
+ * first — five IMUs place the whole body — then the camera. If neither can
+ * measure, there is no set. Nothing is substituted for a missing sensor.
  */
 export interface SourceBundle {
   pose: PoseSource;
@@ -33,124 +32,57 @@ export interface SourceBundle {
 }
 
 /**
- * Wraps the camera source and drops to an internal simulator if the camera
- * path reports unavailable or never produces a frame — the user always sees
- * a live Mesh, and Demo Mode can never break (deal-breaker 3).
+ * Is there anything that can actually measure a set right now?
+ *
+ * A shipped build answers this with hardware only. The simulator exists for
+ * tests and for development builds; it is not a product feature, and a user
+ * is never offered a pretend workout.
  */
-export class FallbackPoseSource implements PoseSource {
-  status: SourceStatus = 'idle';
-  private inner: PoseSource;
-  private sim: SimPoseSource;
-  private usingSim = false;
-  private poses = new Emitter<PoseFrame>();
-  private statuses = new Emitter<SourceStatus>();
-  private subs: Unsubscribe[] = [];
-  private firstFrameTimer: ReturnType<typeof setTimeout> | null = null;
-
-  constructor(camera: PoseSource, sim: SimPoseSource) {
-    this.inner = camera;
-    this.sim = sim;
-  }
-
-  get kind(): 'sim' | 'camera' {
-    return this.usingSim ? 'sim' : 'camera';
-  }
-
-  start(): void {
-    this.subs.push(
-      this.inner.onPose((f) => {
-        if (this.firstFrameTimer) {
-          clearTimeout(this.firstFrameTimer);
-          this.firstFrameTimer = null;
-        }
-        if (!this.usingSim) this.poses.emit(f);
-      }),
-      this.inner.onStatus((s) => {
-        if (s === 'unavailable') this.fallback();
-        else if (!this.usingSim) this.setStatus(s);
-      }),
-      this.sim.onPose((f) => {
-        if (this.usingSim) this.poses.emit(f);
-      }),
-    );
-    this.setStatus('searching');
-    this.inner.start();
-    // no first frame in time → the detector is not real; go sim
-    this.firstFrameTimer = setTimeout(() => this.fallback(), 2500);
-  }
-
-  private fallback(): void {
-    if (this.usingSim) return;
-    this.usingSim = true;
-    if (this.firstFrameTimer) {
-      clearTimeout(this.firstFrameTimer);
-      this.firstFrameTimer = null;
-    }
-    this.inner.stop();
-    this.sim.start();
-    this.setStatus('active');
-  }
-
-  stop(): void {
-    if (this.firstFrameTimer) clearTimeout(this.firstFrameTimer);
-    this.firstFrameTimer = null;
-    for (const u of this.subs) u();
-    this.subs = [];
-    this.inner.stop();
-    this.sim.stop();
-    this.setStatus('idle');
-  }
-
-  onPose(cb: (f: PoseFrame) => void): Unsubscribe {
-    return this.poses.on(cb);
-  }
-  onStatus(cb: (s: SourceStatus) => void): Unsubscribe {
-    return this.statuses.on(cb);
-  }
-  private setStatus(s: SourceStatus): void {
-    this.status = s;
-    this.statuses.emit(s);
-  }
+export function hasLiveSource(camGranted: boolean): boolean {
+  if (useConnectionStore.getState().mode === 'linked' && rigLink.active) return true;
+  if (camGranted && CameraPoseSource.available()) return true;
+  return __DEV__;
 }
 
 export function createSetSources(
   ex: ExerciseSpec,
   opts: {
     camGranted: boolean;
-    demoFault: boolean;
-    forceDemo: boolean;
   },
-): SourceBundle {
-  const fault: FaultScript = opts.demoFault
-    ? defaultFaultScript(ex)
-    : { kind: 'none', reps: [], intensity: 0 };
-  const timeline = new SimTimeline(ex, { t0: Date.now(), fault });
-  const simPose = new SimPoseSource(timeline);
-  const simSensor = new SimSensorSource(timeline);
-
+): SourceBundle | null {
   // A linked Rig is the primary instrument: five IMUs place the whole body,
-  // so it both grades and draws. The sim Rig may only accompany the sim body —
-  // scripted angles under a real person would fabricate their metrics
-  // (deal-breaker 2).
-  const rigLive = !opts.forceDemo && useConnectionStore.getState().mode === 'linked' ? rigLink.active : null;
+  // so it both grades and draws.
+  const rigLive = useConnectionStore.getState().mode === 'linked' ? rigLink.active : null;
   const calibration = rigLive ? storedCalibration() : new RigCalibration();
+  const cameraViable = opts.camGranted && CameraPoseSource.available();
 
-  const cameraViable = !opts.forceDemo && opts.camGranted && CameraPoseSource.available();
+  // The simulator is a development instrument. `__DEV__` is false in the APK a
+  // tester installs, so none of this exists in their build.
+  const simEnabled = __DEV__;
+  const timeline = simEnabled ? new SimTimeline(ex, { t0: Date.now(), fault: defaultFaultScript(ex) }) : null;
+  const simPose = timeline ? new SimPoseSource(timeline) : null;
+  const simSensor = timeline ? new SimSensorSource(timeline) : null;
 
   let pose: PoseSource;
   let poseOrigin: SourceBundle['poseOrigin'];
   let rigPose: RigPoseSource | null = null;
+
   if (rigLive) {
-    // the exoskeleton draws its own body; the simulator stands by if it stalls
+    // The exoskeleton draws its own body. Nothing stands in for it when it
+    // goes quiet — the live screen reports the loss instead of animating a
+    // body that is not being measured.
     rigPose = new RigPoseSource(rigLive, calibration);
-    pose = new FallbackPoseSource(rigPose, simPose);
+    pose = rigPose;
     poseOrigin = 'rig';
   } else if (cameraViable) {
-    pose = new FallbackPoseSource(new CameraPoseSource({ hasCameraPermission: opts.camGranted }), simPose);
+    pose = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
     poseOrigin = 'camera';
-  } else {
+  } else if (simPose) {
     pose = simPose;
     poseOrigin = 'sim';
+  } else {
+    // no instrument, no set
+    return null;
   }
 
   const sensor: SensorSource | null = rigLive ?? (cameraViable ? null : simSensor);
@@ -165,13 +97,13 @@ export function createSetSources(
     poseOrigin,
     startSet() {
       // rep zero starts a beat after the live screen mounts
-      timeline.rebase(Date.now() + 400);
+      timeline?.rebase(Date.now() + 400);
     },
     dispose() {
       pose.stop();
       rigPose?.stop();
-      simPose.stop();
-      simSensor.stop();
+      simPose?.stop();
+      simSensor?.stop();
       // the shared Rig link outlives the set on purpose
     },
   };

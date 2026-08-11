@@ -21,11 +21,12 @@ import { ReviewStage } from '@/src/train/ReviewStage';
 import { SelectStage } from '@/src/train/SelectStage';
 import { TutorialStage } from '@/src/train/TutorialStage';
 import { AppText } from '@/src/ui/AppText';
+import { EmptyState } from '@/src/ui/EmptyState';
 import { GridBackdrop } from '@/src/ui/GridBackdrop';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { ScanlineSweep } from '@/src/ui/ScanlineSweep';
 
-type Stage = 'select' | 'loading' | 'tutorial' | 'arm' | 'position' | 'live' | 'review' | 'report';
+type Stage = 'select' | 'loading' | 'tutorial' | 'arm' | 'noSource' | 'position' | 'live' | 'review' | 'report';
 
 /**
  * The Training flow (§2.5) — a full-screen modal state machine:
@@ -40,11 +41,10 @@ export default function TrainScreen() {
   const initialEx = getExercise(exerciseParam ?? '') ?? null;
   const [ex, setEx] = useState<ExerciseSpec | null>(initialEx);
   const [stage, setStage] = useState<Stage>(initialEx ? 'loading' : 'select');
-  const [config, setConfig] = useState<TrainConfig>({ record: false, durationSec: 30, demoFault: true });
+  const [config, setConfig] = useState<TrainConfig>({ record: false, durationSec: 30 });
   const [camPerm] = useCameraPermissions();
   const [result, setResult] = useState<LiveResult | null>(null);
   const [aiKey, setAiKeyState] = useState<string | null>(null);
-  const demoForced = useSettingsStore((s) => s.demoModeForced);
 
   // the optional Claude key rides the whole flow; absent ⇒ RuleCoach everywhere
   useEffect(() => {
@@ -72,11 +72,13 @@ export default function TrainScreen() {
 
   const beginPositioning = () => {
     sourcesRef.current?.dispose();
-    sourcesRef.current = createSetSources(ex!, {
-      camGranted: camPerm?.granted === true,
-      demoFault: config.demoFault,
-      forceDemo: demoForced,
-    });
+    const sources = createSetSources(ex!, { camGranted: camPerm?.granted === true });
+    if (sources === null) {
+      // nothing can measure this set — say so rather than inventing one
+      setStage('noSource');
+      return;
+    }
+    sourcesRef.current = sources;
     setStage('position');
   };
 
@@ -129,6 +131,27 @@ export default function TrainScreen() {
         return ex ? (
           <ArmStage ex={ex} config={config} onConfig={setConfig} onBegin={beginPositioning} />
         ) : null;
+      case 'noSource':
+        return (
+          <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: space.gutter, gap: space.md }}>
+            <EmptyState
+              code="NOTHING TO MEASURE WITH"
+              title="Connect your Rig"
+              body="Synapse grades what its sensors can see. Link the Rig — or allow the camera — and the set can begin."
+              actionTitle="Connect the Rig"
+              onAction={() => {
+                close();
+                router.push('/connect');
+              }}
+              tone="acid"
+            />
+            <PressableScale onPress={() => setStage('arm')} accessibilityRole="button" accessibilityLabel="Back">
+              <AppText variant="micro" color={color.textLo} align="center" style={{ paddingVertical: 8 }}>
+                BACK
+              </AppText>
+            </PressableScale>
+          </View>
+        );
       case 'position':
         return ex ? <PositionStage ex={ex} sources={sourcesRef.current} onLocked={() => setStage('live')} /> : null;
       case 'live':

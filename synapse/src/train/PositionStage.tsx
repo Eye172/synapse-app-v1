@@ -21,7 +21,7 @@ const LOCK_SCORE = 0.85;
 /**
  * GET_INTO_POSITION (§2.5): the acid ghost target, the live turquoise body
  * drifting into it, a ring that closes while alignment holds, then LOCK.
- * Demo Mode simulates the walk-in with the same alignment math the camera
+ * Development builds simulate the walk-in with the same alignment math the
  * path will use.
  */
 export function PositionStage({
@@ -82,7 +82,7 @@ export function PositionStage({
       });
       sources.pose.start();
     } else {
-      // demo: a scripted body walks into the ghost over ~2.4s
+      // development build: a scripted body walks into the ghost over ~2.4s
       const tick = () => {
         const now = Date.now();
         const t = (now - t0) / 1000;

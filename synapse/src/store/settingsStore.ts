@@ -9,8 +9,6 @@ export interface SettingsState {
   hapticsOn: boolean;
   /** in-set coach chattiness */
   coachVerbosity: 'quiet' | 'normal';
-  /** force Demo Mode even when hardware is present */
-  demoModeForced: boolean;
   /** which lens films the set — front to watch yourself, back for a propped phone */
   cameraFacing: 'front' | 'back';
   /** whether an AI key is stored (the key itself lives in SecureStore) */
@@ -43,7 +41,6 @@ export const useSettingsStore = create<SettingsState>()(
       voiceOn: true,
       hapticsOn: true,
       coachVerbosity: 'normal',
-      demoModeForced: false,
       cameraFacing: 'front',
       aiKeyPresent: false,
       aiProvider: 'anthropic',

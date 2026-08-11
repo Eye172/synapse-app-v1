@@ -77,7 +77,7 @@ export default function RootLayout() {
             />
             <Stack.Screen name="connect" options={{ presentation: 'modal', animation: 'slide_from_bottom' }} />
             <Stack.Screen name="exercise/[id]" options={{ animation: 'slide_from_right' }} />
-            <Stack.Screen name="dev" options={{ animation: 'slide_from_right' }} />
+            <Stack.Screen name="sensor-setup" options={{ animation: 'slide_from_right' }} />
           </Stack>
         </ThemeProvider>
       </SafeAreaProvider>
