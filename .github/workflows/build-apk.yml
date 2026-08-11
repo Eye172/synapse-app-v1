@@ -61,11 +61,31 @@ jobs:
         working-directory: synapse
         run: npx expo prebuild --platform android --no-install
 
+      # On failure the interesting part is Gradle's "What went wrong" block,
+      # which is buried in thousands of log lines only a signed-in user can
+      # read. Echoing it as a workflow error puts it in the run's annotations,
+      # which is the first thing anyone actually sees.
       - name: Build the release APK
         working-directory: synapse/android
         run: |
           chmod +x ./gradlew
-          ./gradlew assembleRelease --no-daemon
+          set -o pipefail
+          if ! ./gradlew assembleRelease --no-daemon 2>&1 | tee gradle.log; then
+            echo "::group::Gradle failure"
+            sed -n '/^FAILURE:/,/^\* Try:/p' gradle.log | head -40 | while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::$line"
+            done
+            echo "::endgroup::"
+            exit 1
+          fi
+
+      - name: Keep the Gradle log when the build fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gradle-log
+          path: synapse/android/gradle.log
+          if-no-files-found: ignore
 
       - name: Collect the APK
         id: collect
