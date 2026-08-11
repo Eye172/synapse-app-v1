@@ -6,13 +6,13 @@ const NOW = 1234567;
 const s = Math.SQRT1_2;
 
 describe('Rig payload normalizer — v2 named form (§2.9)', () => {
-  // the exact shape the firmware ships
+  // the exact shape the firmware ships: `a` for alert, `q` for quaternion
   const named = {
-    back: { alert: false, quaternions: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
-    leftArm: { alert: false, quaternions: { r: s, i: s, j: 0.0, k: 0.0 } },
-    leftLeg: { alert: false, quaternions: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
-    rightArm: { alert: true, quaternions: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
-    rightLeg: { alert: false, quaternions: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
+    back: { a: false, q: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
+    leftArm: { a: false, q: { r: s, i: s, j: 0.0, k: 0.0 } },
+    leftLeg: { a: false, q: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
+    rightArm: { a: true, q: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
+    rightLeg: { a: false, q: { r: 1.0, i: 0.0, j: 0.0, k: 0.0 } },
   };
 
   it('parses all five nodes with per-node alerts', () => {
@@ -47,8 +47,7 @@ describe('Rig payload normalizer — v2 named form (§2.9)', () => {
 
   it('tolerates the Python repr a raw str(dict) would emit', () => {
     // MicroPython str(dict): single quotes and capitalised False
-    const pythonish =
-      "{'back': {'alert': False, 'quaternions': {'r': 1.0, 'i': 0.0, 'j': 0.0, 'k': 0.0}}}";
+    const pythonish = "{'back': {'a': False, 'q': {'r': 1.0, 'i': 0.0, 'j': 0.0, 'k': 0.0}}}";
     const f = parseRigPayload(pythonish, NOW)!;
     expect(f).not.toBeNull();
     expect(f.nodes[0]!.id).toBe('back');
@@ -63,11 +62,11 @@ describe('Rig payload normalizer — v2 named form (§2.9)', () => {
 
 describe('Rig payload normalizer — v2 compact array', () => {
   const compact = [
-    { alert: false, q: [1.0, 0.0, 0.0, 0.0] },
-    { alert: false, q: [s, s, 0.0, 0.0] },
-    { alert: false, q: [1.0, 0.0, 0.0, 0.0] },
-    { alert: true, q: [1.0, 0.0, 0.0, 0.0] },
-    { alert: false, q: [1.0, 0.0, 0.0, 0.0] },
+    { a: false, q: [1.0, 0.0, 0.0, 0.0] },
+    { a: false, q: [s, s, 0.0, 0.0] },
+    { a: false, q: [1.0, 0.0, 0.0, 0.0] },
+    { a: true, q: [1.0, 0.0, 0.0, 0.0] },
+    { a: false, q: [1.0, 0.0, 0.0, 0.0] },
   ];
 
   it('maps array positions onto the documented node order', () => {
@@ -91,11 +90,11 @@ describe('Rig payload normalizer — v2 compact array', () => {
   it('carries the same information as the named form', () => {
     const named = parseRigPayload(
       JSON.stringify({
-        back: { alert: false, quaternions: { r: 1, i: 0, j: 0, k: 0 } },
-        leftArm: { alert: false, quaternions: { r: s, i: s, j: 0, k: 0 } },
-        leftLeg: { alert: false, quaternions: { r: 1, i: 0, j: 0, k: 0 } },
-        rightArm: { alert: true, quaternions: { r: 1, i: 0, j: 0, k: 0 } },
-        rightLeg: { alert: false, quaternions: { r: 1, i: 0, j: 0, k: 0 } },
+        back: { a: false, q: { r: 1, i: 0, j: 0, k: 0 } },
+        leftArm: { a: false, q: { r: s, i: s, j: 0, k: 0 } },
+        leftLeg: { a: false, q: { r: 1, i: 0, j: 0, k: 0 } },
+        rightArm: { a: true, q: { r: 1, i: 0, j: 0, k: 0 } },
+        rightLeg: { a: false, q: { r: 1, i: 0, j: 0, k: 0 } },
       }),
       NOW,
     )!;
@@ -108,9 +107,57 @@ describe('Rig payload normalizer — v2 compact array', () => {
   });
 
   it('tolerates Python booleans in the compact form too', () => {
-    const f = parseRigPayload("[{'alert':False,'q':[1.0,0.0,0.0,0.0]}]", NOW)!;
+    const f = parseRigPayload("[{'a':False,'q':[1.0,0.0,0.0,0.0]}]", NOW)!;
     expect(f.nodes[0]!.id).toBe('back');
     expect(f.nodes[0]!.alert).toBe(false);
+  });
+});
+
+describe('the earlier key spelling still parses', () => {
+  // A rig in the field may be running firmware from before the rename. The
+  // failure mode of dropping it would be indistinguishable from dead
+  // hardware, which is the worst possible thing to debug in a gym.
+  it('reads alert/quaternions in the named form', () => {
+    const f = parseRigPayload(
+      JSON.stringify({
+        back: { alert: false, quaternions: { r: 1, i: 0, j: 0, k: 0 } },
+        rightArm: { alert: true, quaternions: { r: s, i: s, j: 0, k: 0 } },
+      }),
+      NOW,
+    )!;
+    expect(f.protocol).toBe('v2-named');
+    expect(f.nodes).toHaveLength(2);
+    expect(f.nodes.find((n) => n.id === 'rightArm')!.alert).toBe(true);
+    expect(f.flags.alert).toBe(true);
+  });
+
+  it('reads alert in the compact form', () => {
+    const f = parseRigPayload(JSON.stringify([{ alert: true, q: [1, 0, 0, 0] }]), NOW)!;
+    expect(f.nodes[0]!.alert).toBe(true);
+  });
+
+  it('gives the same frame under either spelling', () => {
+    const short = parseRigPayload(
+      JSON.stringify({ back: { a: true, q: { r: s, i: s, j: 0, k: 0 } } }),
+      NOW,
+    )!;
+    const long = parseRigPayload(
+      JSON.stringify({ back: { alert: true, quaternions: { r: s, i: s, j: 0, k: 0 } } }),
+      NOW,
+    )!;
+    expect(short.nodes).toEqual(long.nodes);
+    expect(short.flags).toEqual(long.flags);
+  });
+
+  it('tells a named quaternion from a packed one by its shape, not its key', () => {
+    // `q` is an object here and an array in the compact form; both must land
+    // on the same numbers rather than one being mistaken for the other
+    const asObject = parseRigPayload(
+      JSON.stringify({ back: { a: false, q: { r: s, i: 0, j: s, k: 0 } } }),
+      NOW,
+    )!;
+    const asArray = parseRigPayload(JSON.stringify([{ a: false, q: [s, 0, s, 0] }]), NOW)!;
+    expect(asObject.nodes[0]!.quat).toEqual(asArray.nodes[0]!.quat);
   });
 });
 
@@ -149,6 +196,8 @@ describe('Rig payload normalizer — hostile input never throws', () => {
     ['unknown keys only', '{"foo": 1, "bar": 2}'],
     ['node with no usable field', '{"back": {}}'],
     ['quaternion of strings', '{"back":{"quaternions":{"r":"1","i":"0","j":"0","k":"0"}}}'],
+    ['named q of strings', '{"back":{"q":{"r":"1","i":"0","j":"0","k":"0"}}}'],
+    ['named q missing a component', '{"back":{"q":{"r":1,"i":0,"j":0}}}'],
     ['quaternion with NaN', '{"back":{"q":[1e999,0,0,0]}}'],
     ['degenerate zero quaternion', '{"back":{"q":[0,0,0,0]}}'],
     ['nodes not an array', '{"v":1,"nodes":5}'],
@@ -156,6 +205,17 @@ describe('Rig payload normalizer — hostile input never throws', () => {
     ['bare number', '42'],
   ])('rejects %s', (_name, payload) => {
     expect(parseRigPayload(payload, NOW)).toBeNull();
+  });
+
+  it('drops a corrupt quaternion without dropping the alert beside it', () => {
+    // the firmware's fault flag is the one field that can stop a set on its
+    // own authority, so a garbled orientation must not take it down with it —
+    // but it must also not become a body position
+    const f = parseRigPayload('{"back":{"a":true,"q":{"r":"1","i":"0","j":"0","k":"0"}}}', NOW)!;
+    expect(f).not.toBeNull();
+    expect(f.nodes[0]!.quat).toBeUndefined();
+    expect(f.nodes[0]!.alert).toBe(true);
+    expect(f.flags.alert).toBe(true);
   });
 
   it('rejects oversized payloads and entry floods', () => {
@@ -167,8 +227,8 @@ describe('Rig payload normalizer — hostile input never throws', () => {
   it('ignores unknown segment names rather than trusting them', () => {
     const f = parseRigPayload(
       JSON.stringify({
-        back: { alert: false, q: [1, 0, 0, 0] },
-        tail: { alert: true, q: [1, 0, 0, 0] },
+        back: { a: false, q: { r: 1, i: 0, j: 0, k: 0 } },
+        tail: { a: true, q: { r: 1, i: 0, j: 0, k: 0 } },
       }),
       NOW,
     )!;

@@ -15,7 +15,7 @@ Synapse grades what its sensors can actually see. If neither the Rig nor the cam
 
 This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
 
-A simulator does exist — it drives the 120-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
+A simulator does exist — it drives the 127-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
 
 ### Run it
 
@@ -48,7 +48,7 @@ node scripts/send-test-packet.js <phone-ip> --stream
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup (no rebuild to fix mount conventions) | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by 120 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by 127 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
@@ -56,24 +56,26 @@ node scripts/send-test-packet.js <phone-ip> --stream
 
 The exoskeleton carries one IMU per limb plus the back, and ships each frame as a JSON string over UDP to `:1234`. Both spellings below are accepted and carry identical information — use whichever the firmware finds cheaper to serialize.
 
-**Named form** — read as `package.back.alert`, `package.back.quaternions.k`:
+`a` is the node's alert flag, `q` its quaternion.
+
+**Named form** — read as `package.back.a`, `package.back.q.k`:
 
 ```json
-{"back":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
- "leftArm":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
- "leftLeg":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
- "rightArm":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
- "rightLeg":{"alert":false,"quaternions":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}}}
+{"back":{"a":false,"q":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "leftArm":{"a":false,"q":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "leftLeg":{"a":false,"q":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "rightArm":{"a":false,"q":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}},
+ "rightLeg":{"a":false,"q":{"r":0.0,"i":0.0,"j":0.0,"k":0.0}}}
 ```
 
-**Compact form** — read as `package[0].alert`, `package[0].q[3]`:
+**Compact form** — read as `package[0].a`, `package[0].q[3]`:
 
 ```json
-[{"alert":false,"q":[0.0,0.0,0.0,0.0]},
- {"alert":false,"q":[0.0,0.0,0.0,0.0]},
- {"alert":false,"q":[0.0,0.0,0.0,0.0]},
- {"alert":false,"q":[0.0,0.0,0.0,0.0]},
- {"alert":false,"q":[0.0,0.0,0.0,0.0]}]
+[{"a":false,"q":[0.0,0.0,0.0,0.0]},
+ {"a":false,"q":[0.0,0.0,0.0,0.0]},
+ {"a":false,"q":[0.0,0.0,0.0,0.0]},
+ {"a":false,"q":[0.0,0.0,0.0,0.0]},
+ {"a":false,"q":[0.0,0.0,0.0,0.0]}]
 ```
 
 Contract details the parser enforces:
@@ -81,8 +83,11 @@ Contract details the parser enforces:
 | Point | Rule |
 |---|---|
 | **Array order** | `[0] back, [1] leftArm, [2] leftLeg, [3] rightArm, [4] rightLeg` — positional, from `RIG_NODE_ORDER` |
-| **`q` order** | `[r, i, j, k]` — scalar first, matching the named form's own field order. One constant (`V2_QUAT_ORDER`) flips it if firmware ever packs scalar-last |
-| **Alerts** | Per node. Any node alerting raises the frame alert and a safety stop on its own authority |
+| **`q` shape** | An object `{r,i,j,k}` in the named form, a packed array in the compact one. The two can never be confused — the parser tells them apart by shape, not by key |
+| **`q` order** | Packed: `[r, i, j, k]`, scalar first, matching the named form's own field order. A runtime toggle (Sensor setup) flips it if firmware packs scalar-last; the named form is unambiguous and ignores it |
+| **Alerts** | Per node, under `a`. Any node alerting raises the frame alert and a safety stop on its own authority |
+| **Key spelling** | `a`/`q` is what the firmware ships. The earlier `alert`/`quaternions` still parse — a rig running older firmware would otherwise be indistinguishable from dead hardware |
+| **Zero quaternions** | `{r:0,i:0,j:0,k:0}` is not a rotation — it is what an uninitialized or failed IMU read looks like, so it is dropped rather than drawn. The node still reports, and its `a` flag still counts; only the orientation is withheld. Identity is `r:1`. |
 | **Partial rigs** | A frame with 2 of 5 nodes is valid — dead straps degrade, they don't break the session |
 | **Python reprs** | A raw `str(dict)` (single quotes, `False`/`True`/`None`) is repaired rather than dropped |
 | **Hostile input** | Oversized payloads, NaN, non-unit quaternions, wrong types, unknown segment names and `__proto__` keys are all rejected without throwing; intake is rate-capped at 120 packets/s |
@@ -152,7 +157,7 @@ synapse/
 └── assets/                 # generated brand assets + bundled Rig footage
 ```
 
-Verification: `npm run typecheck` · `npm test` (120 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+Verification: `npm run typecheck` · `npm test` (127 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
 
 ### Non-negotiables, enforced in code
 

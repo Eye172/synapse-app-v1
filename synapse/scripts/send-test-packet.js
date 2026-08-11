@@ -69,13 +69,15 @@ function buildPayload(cycle, faulted) {
   // the firmware flags a node when its own segment leaves tolerance
   const alertFor = (id) => (id === 'leftLeg' || id === 'rightLeg' ? faulted && cycle > 0.35 && cycle < 0.65 : false);
 
+  // `a` is the alert flag, `q` the quaternion — an object in the named form,
+  // a packed array in the compact one
   if (compact) {
-    return ORDER.map((id) => ({ alert: alertFor(id), q: pose[id].map((x) => Math.round(x * 10000) / 10000) }));
+    return ORDER.map((id) => ({ a: alertFor(id), q: pose[id].map((x) => Math.round(x * 10000) / 10000) }));
   }
   const out = {};
   for (const id of ORDER) {
     const [r, i, j, k] = pose[id].map((x) => Math.round(x * 10000) / 10000);
-    out[id] = { alert: alertFor(id), quaternions: { r, i, j, k } };
+    out[id] = { a: alertFor(id), q: { r, i, j, k } };
   }
   return out;
 }

@@ -13,16 +13,22 @@ import {
  *
  * Four wire formats are accepted, newest first:
  *
- *  v2-named  {"back":{"alert":false,"quaternions":{"r":0,"i":0,"j":0,"k":0}},
+ *  v2-named  {"back":{"a":false,"q":{"r":0,"i":0,"j":0,"k":0}},
  *             "leftArm":{…},"leftLeg":{…},"rightArm":{…},"rightLeg":{…}}
  *
- *  v2-array  [{"alert":false,"q":[r,i,j,k]}, …]   ← 5 entries, RIG_NODE_ORDER
+ *  v2-array  [{"a":false,"q":[r,i,j,k]}, …]   ← 5 entries, RIG_NODE_ORDER
  *
  *  v1        {"v":1,"nodes":[{"id":"spine","q":[i,j,k,r]}],"batt":83}
  *  v0        {"angle":41.7,"alert":true}
  *
  * Both v2 forms carry the same information; the array form is the compact one
  * and its element order is positional, so RIG_NODE_ORDER is the contract.
+ *
+ * `a` and `q` are the firmware's spellings. The longer `alert`/`quaternions`
+ * an earlier revision used are still read, because a rig in the field may be
+ * running either and a silent mismatch would look exactly like dead hardware.
+ * The two are never ambiguous: `q` holding an object is the named quaternion,
+ * `q` holding an array is the packed one.
  */
 
 const MAX_PAYLOAD_BYTES = 4096;
@@ -42,7 +48,7 @@ const V1_QUAT_SCALAR_LAST = true;
 
 /**
  * Runtime override for the compact form's component order. Firmware that
- * packs the scalar last flips this from the Diagnostics screen — no rebuild,
+ * packs the scalar last flips this from the Sensor setup screen — no rebuild,
  * which matters when the only person holding the hardware is in a gym.
  * Named quaternions (`{r,i,j,k}`) are unambiguous and ignore it.
  */
@@ -115,9 +121,21 @@ function readQuatObject(raw: unknown): [number, number, number, number] | undefi
   return readQuatArray([r, i, j, k], false);
 }
 
-/** Reads either quaternion spelling from a per-node object. */
+/**
+ * Reads a node's quaternion however it is spelled: `q` as an object is the
+ * named form, `q` as an array is the packed one, and `quaternions` is the
+ * earlier revision's longer key. Object and array can't collide, so trying
+ * each in turn is unambiguous rather than a guess.
+ */
 function readNodeQuat(entry: Record<string, unknown>): [number, number, number, number] | undefined {
-  return readQuatObject(entry.quaternions) ?? readQuatArray(entry.q, v2ScalarLast);
+  return (
+    readQuatObject(entry.q) ?? readQuatObject(entry.quaternions) ?? readQuatArray(entry.q, v2ScalarLast)
+  );
+}
+
+/** Reads a node's fault flag under either spelling. */
+function readNodeAlert(entry: Record<string, unknown>): boolean | undefined {
+  return readBool(entry.a) ?? readBool(entry.alert);
 }
 
 function decode(raw: string | Uint8Array): string | undefined {
@@ -148,7 +166,7 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
       const entry = obj[idx];
       if (!isObject(entry)) continue;
       const quat = readNodeQuat(entry);
-      const alert = readBool(entry.alert);
+      const alert = readNodeAlert(entry);
       if (quat === undefined && alert === undefined) continue;
       const node: SensorNode = { id: RIG_NODE_ORDER[idx]! };
       if (quat) node.quat = quat;
@@ -172,7 +190,7 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
     for (const key of namedKeys) {
       const entry = obj[key] as Record<string, unknown>;
       const quat = readNodeQuat(entry);
-      const alert = readBool(entry.alert);
+      const alert = readNodeAlert(entry);
       if (quat === undefined && alert === undefined) continue;
       const node: SensorNode = { id: key as RigNodeId };
       if (quat) node.quat = quat;
