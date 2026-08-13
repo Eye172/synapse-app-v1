@@ -6,7 +6,9 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.Inet4Address
 import java.net.InetSocketAddress
+import java.net.NetworkInterface
 import java.net.SocketException
 
 /**
@@ -47,6 +49,34 @@ class RigUdpModule : Module() {
 
     AsyncFunction("close") {
       closeSocket()
+    }
+
+    /**
+     * Every IPv4 address this phone currently holds, one per interface, as
+     * "<interface> <address>".
+     *
+     * The platform's own "what is my IP" answer reports the *main* interface,
+     * which on a phone that is both joined to Wi-Fi and hosting a hotspot is
+     * the wrong one — it names the home network while the Rig is talking to
+     * the hotspot. The firmware sends to a fixed address, so the only question
+     * that matters is whether this phone actually holds it, and that cannot be
+     * answered without seeing every interface.
+     */
+    Function("addresses") {
+      val found = mutableListOf<String>()
+      try {
+        for (ni in NetworkInterface.getNetworkInterfaces()) {
+          if (!ni.isUp) continue
+          for (addr in ni.inetAddresses) {
+            if (addr is Inet4Address && !addr.isLoopbackAddress) {
+              found.add("${ni.name} ${addr.hostAddress}")
+            }
+          }
+        }
+      } catch (e: Exception) {
+        // interface enumeration is a diagnostic, never a reason to fail
+      }
+      found
     }
 
     OnDestroy {

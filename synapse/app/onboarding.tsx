@@ -111,8 +111,9 @@ export default function OnboardingScreen() {
               The link is local
             </AppText>
             <AppText variant="body" style={{ marginTop: 6 }}>
-              Name your phone's hotspot “Synapse” and the Rig streams straight to the app — no cloud, no account, no
-              pairing dance. Nothing about your training ever leaves this phone.
+              The Rig joins one exact hotspot — name, password and address are all compiled into it, and Connect
+              shows you what to match. No cloud, no account, no pairing dance. Nothing about your training ever
+              leaves this phone.
             </AppText>
           </View>
         </ScrollView>

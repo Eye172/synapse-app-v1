@@ -32,6 +32,13 @@ declare class RigUdpNativeModule extends NativeModule<RigUdpEvents> {
   bind(port: number): Promise<void>;
   /** Release the socket. Safe to call when nothing is bound. */
   close(): Promise<void>;
+  /**
+   * Every IPv4 address this phone holds, as `"<interface> <address>"` — e.g.
+   * `"wlan0 192.168.10.184"`, `"ap0 192.168.43.1"`. A phone hosting a hotspot
+   * while joined to Wi-Fi holds both, and only one of them is the one the Rig
+   * can reach.
+   */
+  addresses(): string[];
 }
 export type { RigUdpNativeModule };
 

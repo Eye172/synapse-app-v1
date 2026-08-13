@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { buzz } from '@/src/coach/haptics';
 import { RIG_NODE_IDS, type RigNodeId, type SensorFrame, type SensorNode } from '@/src/engine/types';
+import { RIG_HOTSPOT_PASSWORD, RIG_HOTSPOT_SSID } from '@/src/sources/udp/firmware';
 import { rigLink, calibrateNeutral } from '@/src/sources/udp/rigLink';
 import { RIG_UDP_PORT } from '@/src/sources/udp/UdpSensorSource';
 import { useConnectionStore } from '@/src/store/connectionStore';
@@ -29,6 +30,25 @@ const NODE_LABEL: Record<RigNodeId, string> = {
   leftLeg: 'LEG · L',
   rightLeg: 'LEG · R',
 };
+
+/**
+ * A value the phone has to match exactly, shown as something to copy rather
+ * than something to decide. These are compiled into the Rig — presenting them
+ * as advice is what makes people "improve" them and then wonder why nothing
+ * connects.
+ */
+function Credential({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 }}>
+      <AppText variant="nano" color={color.textLo}>
+        {label}
+      </AppText>
+      <AppText variant="monoBody" color={color.acid} selectable>
+        {value}
+      </AppText>
+    </View>
+  );
+}
 
 /**
  * Connect wizard (§2.4-A, §2.9): the phone opens a hotspot named "Synapse",
@@ -198,14 +218,37 @@ export default function ConnectScreen() {
                   SEARCHING — WAITING FOR THE FIRST PACKET
                 </AppText>
                 <AppText variant="body">
-                  1 · Open your phone’s hotspot and name it <AppText variant="bodySemi">Synapse</AppText>.{'\n'}
-                  2 · Power the Rig. Its node joins the hotspot and streams here automatically.{'\n'}
-                  3 · Nothing to pair, nothing leaves the phone.
+                  The Rig looks for one exact network and sends to one exact address. All three are
+                  compiled into it — set your hotspot to match, character for character.
                 </AppText>
+
+                <View style={{ gap: 6 }}>
+                  <Credential label="HOTSPOT NAME" value={RIG_HOTSPOT_SSID} />
+                  <Credential label="HOTSPOT PASSWORD" value={RIG_HOTSPOT_PASSWORD} />
+                </View>
+
                 <PhoneAddress />
-                <AppText variant="nano" color={color.warn}>
-                  TIP · SET A STRONG HOTSPOT PASSWORD — THE DEFAULT FIRMWARE ONE IS WEAK
+
+                <AppText variant="body">
+                  Then power the Rig — it joins on its own. Nothing to pair, nothing leaves the phone.
                 </AppText>
+
+                {/* Still nothing is the hard case: the Rig failing to join the
+                    network and the Rig joining but shouting at the wrong
+                    address look identical from in here. The phone's own
+                    hotspot screen tells them apart in one glance, so point at
+                    it rather than leaving the tester to guess. */}
+                <View style={{ gap: 3, marginTop: 2 }}>
+                  <AppText variant="nano" color={color.textLo}>
+                    STILL SILENT? OPEN THE PHONE’S HOTSPOT SCREEN AND COUNT CONNECTED DEVICES
+                  </AppText>
+                  <AppText variant="nano" color={color.textMid}>
+                    NONE → THE RIG NEVER JOINED · CHECK THE NAME AND PASSWORD ABOVE
+                  </AppText>
+                  <AppText variant="nano" color={color.textMid}>
+                    ONE → IT JOINED BUT ITS PACKETS LAND ELSEWHERE · CHECK THE ADDRESS ABOVE
+                  </AppText>
+                </View>
               </GlassCard>
             ) : null}
 

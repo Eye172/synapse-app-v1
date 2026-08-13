@@ -15,7 +15,7 @@ Synapse grades what its sensors can actually see. If neither the Rig nor the cam
 
 This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
 
-A simulator does exist — it drives the 127-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
+A simulator does exist — it drives the 132-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
 
 ### Run it
 
@@ -48,7 +48,7 @@ node scripts/send-test-packet.js <phone-ip> --stream
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup (no rebuild to fix mount conventions) | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by 127 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by 132 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
@@ -109,7 +109,7 @@ The firmware (see [`materials/base/main.py`](materials/base/main.py)) speaks UDP
    ```bash
    cd synapse && npx expo run:android        # needs JDK 17 + Android SDK
    ```
-2. On the phone: enable the hotspot, name it **`Synapse`** (set a strong password — the firmware default is weak).
+2. On the phone: enable the hotspot with **exactly** the name and password the Connect screen shows. Both are compiled into the Rig (`AT+CWJAP="Synapse","…"`) — a "better" password means it never joins.
 3. Power the Rig. In the app: **Profile → HARDWARE → Synapse Rig** → the wizard walks `SEARCH → NODES → CALIBRATE → LINKED` (hold neutral 3 s to zero the five reference quaternions).
 4. No hardware handy? Emulate the Rig from this repo:
    ```bash
@@ -120,6 +120,8 @@ The firmware (see [`materials/base/main.py`](materials/base/main.py)) speaks UDP
    ```
 
 When LINKED the Rig is the instrument: five IMUs place the whole body, so it both grades and draws the Mesh. The wizard, staleness handling (`SEARCHING`/`LOST` auto-recovery), and hostile-input hardening are unit-tested against the exact firmware payloads.
+
+**The address is the firmware's, not the app's.** The Rig sends to `192.168.43.1:1234` unconditionally — its source asserts that Android hotspots are "always" that address, which stopped being true years ago. The app listens on every interface, so it does not care where a packet lands; the Rig does. Connect therefore enumerates every IPv4 address the phone actually holds and states plainly whether `192.168.43.1` is among them. (The platform's own "what is my IP" cannot answer this: on a phone joined to Wi-Fi *while* hosting the hotspot it reports the home network.) When the phone does not hold it, the fix is a different phone or one line of firmware — see [ЗАПУСК.md](%D0%97%D0%90%D0%9F%D0%A3%D0%A1%D0%9A.md).
 
 **Mount conventions are fixed on the phone, not in a rebuild.** Quaternion component order (`[r,i,j,k]` vs `[i,j,k,r]`) and which board axis runs along the segment are toggles in **Profile → HARDWARE → Sensor setup**, with live per-segment directions that turn green when the convention is right. A tester with an unknown firmware build converges in about twenty seconds.
 
@@ -157,7 +159,7 @@ synapse/
 └── assets/                 # generated brand assets + bundled Rig footage
 ```
 
-Verification: `npm run typecheck` · `npm test` (127 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+Verification: `npm run typecheck` · `npm test` (132 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
 
 ### Non-negotiables, enforced in code
 
