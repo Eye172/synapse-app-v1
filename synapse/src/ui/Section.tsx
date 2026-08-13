@@ -9,6 +9,11 @@ import { AppText } from './AppText';
  * Grouping by typography and a hairline instead of yet another card. Boxing
  * every block in the same rounded panel flattens hierarchy — a rule and some
  * air separate content without making everything look equally important.
+ *
+ * The label sits one step brighter than captions and asides. When headings,
+ * captions and passing notes all share the dimmest grey there is nothing to
+ * scan by, and a screen reads as an undifferentiated wall however well it is
+ * structured underneath.
  */
 export function Section({
   label,
@@ -39,7 +44,7 @@ export function Section({
             marginBottom: space.sm,
           }}
         >
-          <AppText variant="nano" color={color.textLo}>
+          <AppText variant="nano" color={color.textMid}>
             {label}
           </AppText>
           {aside}

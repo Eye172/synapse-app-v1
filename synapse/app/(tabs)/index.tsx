@@ -91,34 +91,41 @@ export default function HomeScreen() {
 
         {/* The week, as instrument readings — asymmetric on purpose: the score
             is the headline and the rest are footnotes beside it.
+
+            An instrument panel reading "— — —" is three captions explaining
+            three absences, and a first-time user meets it before they have
+            done anything. Until there is something to measure, one line says
+            the same thing.
+
             No entrance animation: an `entering` fade here leaves the block at
             visibility:hidden and the page's headline numbers never appear.
             Two hundred milliseconds of polish is not worth a screen that
             sometimes has no numbers on it. */}
         <View style={{ marginTop: space.xl, paddingHorizontal: space.gutter }}>
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.lg }}>
-            <View style={{ flex: 1 }}>
-              <Metric
-                value={safety === null ? '—' : String(safety)}
-                unit={safety === null ? undefined : '/100'}
-                caption="SAFETY SCORE · LAST 7 DAYS"
-                tint={safetyTint}
-                size={64}
-              />
-              <View style={{ marginTop: 10 }}>
-                <Bar fill={(safety ?? 0) / 100} tint={safetyTint} />
-              </View>
-            </View>
-            <View style={{ gap: 16, paddingBottom: 4 }}>
-              <Metric value={streak > 0 ? String(streak) : '—'} caption={streak === 1 ? 'DAY STREAK' : 'DAY STREAK'} size={26} tint={streak > 0 ? color.textHi : color.textLo} />
-              <Metric value={weekReps > 0 ? String(weekReps) : '—'} caption="REPS THIS WEEK" size={26} tint={weekReps > 0 ? color.textHi : color.textLo} />
-            </View>
-          </View>
           {safety === null ? (
-            <AppText variant="nano" color={color.textLo} style={{ marginTop: 12 }}>
+            <AppText variant="nano" color={color.textLo}>
               NOTHING LOGGED YET — ONE SET STARTS THE RECORD
             </AppText>
-          ) : null}
+          ) : (
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.lg }}>
+              <View style={{ flex: 1 }}>
+                <Metric
+                  value={String(safety)}
+                  unit="/100"
+                  caption="SAFETY SCORE · LAST 7 DAYS"
+                  tint={safetyTint}
+                  size={64}
+                />
+                <View style={{ marginTop: 10 }}>
+                  <Bar fill={safety / 100} tint={safetyTint} />
+                </View>
+              </View>
+              <View style={{ gap: 16, paddingBottom: 4 }}>
+                <Metric value={streak > 0 ? String(streak) : '—'} caption="DAY STREAK" size={26} tint={streak > 0 ? color.textHi : color.textLo} />
+                <Metric value={weekReps > 0 ? String(weekReps) : '—'} caption="REPS THIS WEEK" size={26} tint={weekReps > 0 ? color.textHi : color.textLo} />
+              </View>
+            </View>
+          )}
         </View>
 
         {safety !== null ? (
@@ -165,6 +172,8 @@ export default function HomeScreen() {
                 <AppText variant="nano" color={color.textLo} style={{ marginTop: 5 }}>
                   {continueEx.lesson.watchList.join('  ').toUpperCase()}
                 </AppText>
+                {/* The watch list above already names each rule; counting them
+                    underneath is the same sentence twice. */}
                 {lastSession ? (
                   <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6, marginTop: 8 }}>
                     <AppText variant="monoValue" color={color.textHi} style={{ fontSize: 17 }}>
@@ -174,11 +183,7 @@ export default function HomeScreen() {
                       LAST SESSION
                     </AppText>
                   </View>
-                ) : (
-                  <AppText variant="nano" color={color.mesh} style={{ marginTop: 8 }}>
-                    {`${continueEx.rules.length} RULES WATCHED`}
-                  </AppText>
-                )}
+                ) : null}
               </View>
             </View>
           </PressableScale>

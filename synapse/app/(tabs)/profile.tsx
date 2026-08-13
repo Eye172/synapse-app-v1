@@ -282,14 +282,13 @@ export default function ProfileScreen() {
 
         <View style={{ paddingHorizontal: space.gutter, gap: space.sm }}>
           <GlassCard>
-            <AppText variant="nano" color={color.textLo} style={{ marginBottom: 4 }}>
+            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
               KIT
             </AppText>
             <KitSection onConnect={() => router.push('/connect')} />
             <Divider />
             <Row
               label="Buy / manage kit"
-              sub="SYNAPSE RIG · SENSOR NODES"
               right={
                 <AppText variant="h3" color={color.textLo}>
                   ↗
@@ -303,20 +302,18 @@ export default function ProfileScreen() {
           </GlassCard>
 
           <GlassCard>
-            <AppText variant="nano" color={color.textLo} style={{ marginBottom: 4 }}>
+            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
               COACH
             </AppText>
             <Row
               label="Voice cues"
-              sub="SPOKEN CORRECTIONS DURING THE SET"
               right={
                 <AppSwitch value={settings.voiceOn} onValueChange={(v) => settings.set({ voiceOn: v })} accessibilityLabel='Voice cues' />
               }
             />
             <Divider />
             <Row
-              label="Haptics"
-              sub="BUZZ ON DRIFT AND FAULTS"
+              label="Vibration"
               right={
                 <AppSwitch value={settings.hapticsOn} onValueChange={(v) => settings.set({ hapticsOn: v })} accessibilityLabel='Haptics' />
               }
@@ -324,7 +321,7 @@ export default function ProfileScreen() {
             <Divider />
             <Row
               label="Verbosity"
-              sub={settings.coachVerbosity === 'quiet' ? 'QUIET · ONLY SAFETY IS SPOKEN' : 'NORMAL · CORRECTIONS SPOKEN'}
+              sub={settings.coachVerbosity === 'quiet' ? 'ONLY SAFETY IS SPOKEN' : 'EVERY CORRECTION IS SPOKEN'}
               right={
                 <PressableScale
                   onPress={() =>
@@ -345,7 +342,7 @@ export default function ProfileScreen() {
           </GlassCard>
 
           <GlassCard>
-            <AppText variant="nano" color={color.textLo} style={{ marginBottom: 4 }}>
+            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
               TRAINING
             </AppText>
             <Row
@@ -359,19 +356,18 @@ export default function ProfileScreen() {
             </GlassCard>
 
           <GlassCard>
-            <AppText variant="nano" color={color.textLo} style={{ marginBottom: 4 }}>
+            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
               PRIVACY
             </AppText>
             <AppText variant="body" style={{ marginBottom: 6 }}>
-              Camera frames are processed on this device and never stored or sent anywhere. Set recordings live in the
-              app’s private cache and are hard-deleted the moment you leave review. Your history keeps numbers, never
-              video.
+              Camera frames never leave this device. Recordings are deleted the moment you leave review — your history
+              keeps numbers, never video.
             </AppText>
             <Chip label="EPHEMERAL BY DESIGN" tint={color.mesh} />
           </GlassCard>
 
           <GlassCard>
-            <AppText variant="nano" color={color.textLo} style={{ marginBottom: 4 }}>
+            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
               HARDWARE
             </AppText>
             <Row
