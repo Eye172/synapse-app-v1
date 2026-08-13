@@ -77,7 +77,7 @@ export const EXERCISES: ExerciseSpec[] = [
       summary:
         'The barbell back squat. We watch your spine angle, knee tracking and depth on every rep — the three places heavy squats go wrong.',
       watchList: ['Spine angle', 'Knee valgus', 'Hip depth', 'L/R symmetry'],
-      videoKey: 'clip1',
+      videoKey: 'squat',
     },
     hasRigRules: true,
   },
@@ -140,7 +140,7 @@ export const EXERCISES: ExerciseSpec[] = [
       summary:
         'The conventional deadlift. The Rig watches your spine pitch directly — the single most important number in the gym.',
       watchList: ['Spine pitch (Rig)', 'Bar path', 'Hip-shoulder rise sync'],
-      videoKey: 'clip2',
+      videoKey: null,
     },
     hasRigRules: true,
   },
@@ -202,7 +202,7 @@ export const EXERCISES: ExerciseSpec[] = [
       summary:
         'The strict overhead press. We watch your lower back, the bar line and your wrist stack while the bar is over your head.',
       watchList: ['Lumbar extension', 'Bar line', 'Wrist stack'],
-      videoKey: 'clip3',
+      videoKey: 'shoulderPress',
     },
     hasRigRules: false,
   },
@@ -264,7 +264,7 @@ export const EXERCISES: ExerciseSpec[] = [
       summary:
         'The bench press. We watch elbow flare, the bar line and left/right drive so your shoulders outlast your ego.',
       watchList: ['Elbow flare', 'Bar path', 'Even lockout'],
-      videoKey: 'clip4',
+      videoKey: null,
     },
     hasRigRules: false,
   },

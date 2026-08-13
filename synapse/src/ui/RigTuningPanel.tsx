@@ -55,6 +55,8 @@ export function RigTuningPanel() {
   }, []);
 
   const state = frame ? rigBodyState(frame, new RigCalibration()) : null;
+  // only the packed array form is ambiguous about component order
+  const quatOrderApplies = frame?.protocol === 'v2-array';
 
   return (
     <View style={{ gap: space.sm }}>
@@ -83,6 +85,18 @@ export function RigTuningPanel() {
               </PressableScale>
             ))}
           </View>
+          {/* This setting only means anything for the packed array form. A
+              named quaternion says which component is which, so the toggle
+              cannot change how it is read — and a tester pressing an inert
+              button concludes the app is broken rather than that the setting
+              does not apply. */}
+          <AppText variant="nano" color={quatOrderApplies ? color.textLo : color.warn}>
+            {frame === null
+              ? 'APPLIES ONLY TO THE PACKED ARRAY FORM'
+              : quatOrderApplies
+                ? 'THIS RIG SENDS PACKED ARRAYS — THIS SETTING APPLIES'
+                : 'THIS RIG SENDS NAMED {R,I,J,K} — THIS SETTING DOES NOTHING HERE'}
+          </AppText>
         </View>
 
         <View style={{ gap: 5 }}>

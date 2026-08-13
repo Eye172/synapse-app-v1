@@ -27,7 +27,7 @@ function TutorialPlayer({ source }: { source: number }) {
   );
 }
 
-/** Video lesson (skippable). Real Rig prototype footage where we have it. */
+/** Video lesson (skippable). Reference footage for the lifts we have it for. */
 export function TutorialStage({ ex, onContinue }: { ex: ExerciseSpec; onContinue: () => void }) {
   const source = tutorialVideo(ex.lesson.videoKey);
   return (
@@ -64,7 +64,7 @@ export function TutorialStage({ ex, onContinue }: { ex: ExerciseSpec; onContinue
       </View>
       {source !== null ? (
         <AppText variant="nano" color={color.textLo}>
-          {`RIG FOOTAGE · ${(ex.lesson.videoKey ?? '').toUpperCase()} · MUTED LOOP`}
+          REFERENCE FOOTAGE · MUTED LOOP
         </AppText>
       ) : null}
 

@@ -259,8 +259,12 @@ export interface ExerciseSpec {
     summary: string;
     /** joints/muscles the Mesh watches, for the detail screen */
     watchList: string[];
-    /** bundled tutorial clip key, or null → placeholder player */
-    videoKey: 'clip1' | 'clip2' | 'clip3' | 'clip4' | null;
+    /**
+     * Which bundled clip to play, named for the movement it shows, or null
+     * when there is no honest footage for this lift. Keyed by content rather
+     * than by file position — see src/data/videos.ts for why.
+     */
+    videoKey: 'squat' | 'shoulderPress' | null;
   };
   /** true when the v0 Rig (single spine node) already grades this lift */
   hasRigRules: boolean;

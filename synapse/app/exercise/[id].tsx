@@ -41,7 +41,7 @@ function LessonClip({ ex }: { ex: ExerciseSpec }) {
         }}
       >
         <AppText variant="nano" color={color.textLo}>
-          · RIG FOOTAGE PENDING ·
+          · NO LESSON CLIP FOR THIS LIFT ·
         </AppText>
         <AppText variant="nano" color={color.textLo}>
           THE RULESET BELOW STILL WATCHES EVERY REP
@@ -58,7 +58,7 @@ function LessonClip({ ex }: { ex: ExerciseSpec }) {
         nativeControls
       />
       <AppText variant="nano" color={color.textLo}>
-        {`RIG FOOTAGE · ${(ex.lesson.videoKey ?? '').toUpperCase()} · MUTED LOOP`}
+        REFERENCE FOOTAGE · MUTED LOOP
       </AppText>
     </View>
   );

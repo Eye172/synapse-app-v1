@@ -57,8 +57,10 @@ export default function SensorSetupScreen() {
           </PressableScale>
           <AppText variant="h1">Sensor setup</AppText>
           <AppText variant="body">
-            Stand upright and still. Every reading below should agree with that — the back pointing up, the limbs
-            pointing down. If it does not, change the settings here until it does.
+            Stand upright and still. The readings below should roughly agree — back pointing up, limbs pointing down.
+            If a segment points the wrong way entirely, try the axis buttons until it flips the right way round.
+            Small residual tilt is normal and is what calibration removes; these settings are only for getting the
+            axis itself right.
           </AppText>
         </View>
 

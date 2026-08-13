@@ -21,12 +21,14 @@ export const RIG_HOTSPOT_SSID = 'Synapse';
 /**
  * The hotspot password the Rig authenticates with. Not a choice.
  *
- * NOTE: the prototype listing in `materials/base/main.py` says
- * `GymSafetyNetPassword`. This is the value the rig's owner reports for the
- * hardware actually in the field, so it is the one shown. If a rig will not
- * join the hotspot, this single string is the first thing to check against
- * the firmware it is really running — a wrong password looks exactly like a
- * dead rig: it associates with nothing and sends nothing.
+ * Confirmed twice on real hardware: by the rig's owner and, separately, by
+ * the field tester, who reported that the sensors will not connect under any
+ * other password. The prototype listing in `materials/base/main.py` still
+ * says `GymSafetyNetPassword`; that listing is stale, not this constant.
+ *
+ * A wrong password looks exactly like a dead rig — it associates with
+ * nothing and sends nothing — which is why the Connect screen shows this
+ * value to copy rather than inviting anyone to pick a stronger one.
  */
 export const RIG_HOTSPOT_PASSWORD = 'GymSafetyNetPass';
 

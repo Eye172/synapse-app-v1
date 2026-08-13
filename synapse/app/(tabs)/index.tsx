@@ -1,7 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useMemo } from 'react';
 import { ScrollView, View } from 'react-native';
-import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EXERCISES, getExercise } from '@/src/data/exercises';
@@ -75,9 +74,28 @@ export default function HomeScreen() {
           </AppText>
         </View>
 
-        {/* the week, as instrument readings — asymmetric on purpose: the score
-            is the headline and the rest are footnotes beside it */}
-        <Animated.View entering={FadeIn.duration(200)} style={{ marginTop: space.xl, paddingHorizontal: space.gutter }}>
+        {/* Nothing logged yet means every reading below is a dash, and a
+            column of dashes above the one button worth pressing buries it.
+            With a history the readings have earned the headline; without
+            one, the action leads. */}
+        {safety === null ? (
+          <View style={{ marginTop: space.xl, paddingHorizontal: space.gutter }}>
+            <PrimaryButton
+              title="Start training"
+              sub={ctaSub}
+              onPress={() => router.push('/train')}
+              accessibilityLabel="Start training"
+            />
+          </View>
+        ) : null}
+
+        {/* The week, as instrument readings — asymmetric on purpose: the score
+            is the headline and the rest are footnotes beside it.
+            No entrance animation: an `entering` fade here leaves the block at
+            visibility:hidden and the page's headline numbers never appear.
+            Two hundred milliseconds of polish is not worth a screen that
+            sometimes has no numbers on it. */}
+        <View style={{ marginTop: space.xl, paddingHorizontal: space.gutter }}>
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: space.lg }}>
             <View style={{ flex: 1 }}>
               <Metric
@@ -101,16 +119,18 @@ export default function HomeScreen() {
               NOTHING LOGGED YET — ONE SET STARTS THE RECORD
             </AppText>
           ) : null}
-        </Animated.View>
-
-        <View style={{ marginTop: space.xl, paddingHorizontal: space.gutter }}>
-          <PrimaryButton
-            title="Start training"
-            sub={ctaSub}
-            onPress={() => router.push('/train')}
-            accessibilityLabel="Start training"
-          />
         </View>
+
+        {safety !== null ? (
+          <View style={{ marginTop: space.xl, paddingHorizontal: space.gutter }}>
+            <PrimaryButton
+              title="Start training"
+              sub={ctaSub}
+              onPress={() => router.push('/train')}
+              accessibilityLabel="Start training"
+            />
+          </View>
+        ) : null}
 
         {/* continue — a wide plate, not a card: image left, text ranged left */}
         <Section label={lastSession ? 'CONTINUE' : 'START HERE'} style={{ marginTop: space.xl }} first>
@@ -134,7 +154,14 @@ export default function HomeScreen() {
                 <MiniMesh exercise={continueEx} size={80} />
               </View>
               <View style={{ flex: 1 }}>
-                <AppText variant="h2">{continueEx.name}</AppText>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <AppText variant="h2" style={{ flex: 1 }}>
+                    {continueEx.name}
+                  </AppText>
+                  <AppText variant="h3" color={color.textLo}>
+                    ›
+                  </AppText>
+                </View>
                 <AppText variant="nano" color={color.textLo} style={{ marginTop: 5 }}>
                   {continueEx.lesson.watchList.join('  ').toUpperCase()}
                 </AppText>
@@ -187,6 +214,9 @@ export default function HomeScreen() {
                   </AppText>
                   <AppText variant="nano" color={ex.riskLevel === 3 ? color.error : color.textLo}>
                     {`RISK ${ex.riskLevel}`}
+                  </AppText>
+                  <AppText variant="h3" color={color.textLo}>
+                    ›
                   </AppText>
                 </View>
               </PressableScale>

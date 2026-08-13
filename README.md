@@ -156,7 +156,7 @@ synapse/
 │   └── shims/              # metro shims (node:* → empty on native)
 ├── modules/rig-udp/        # local Expo module: the native UDP receiver (Kotlin, ~100 lines)
 ├── scripts/                # asset generator, Rig packet emulator
-└── assets/                 # generated brand assets + bundled Rig footage
+└── assets/                 # generated brand assets + the two lesson clips we can honestly label
 ```
 
 Verification: `npm run typecheck` · `npm test` (132 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
@@ -164,7 +164,7 @@ Verification: `npm run typecheck` · `npm test` (132 tests: quaternion + forward
 ### Non-negotiables, enforced in code
 
 - **Video is ephemeral.** Recordings live in the app-private cache, are hard-deleted on every exit path from Review (continue/back/background/unmount), never touch the gallery, never upload. History stores numbers.
-- **Nothing is fabricated.** Only the deterministic rule engine produces grades, reps, alerts. Claude may only rephrase engine output; over-spec output is discarded for the deterministic cue. Missing data reads **NO DATA**, never a guess.
+- **Nothing is fabricated.** Only the deterministic rule engine produces grades, reps, alerts. Claude may only rephrase engine output; over-spec output is discarded for the deterministic cue. Missing data reads **NO DATA**, never a guess. That extends to the lesson clips: the source footage covers a squat and a shoulder press, so those two lifts get a video and the other four say they have none — a pull-up standing in for a deadlift teaches the wrong movement to somebody holding a loaded bar.
 - **No pretend workouts.** With no instrument, the set refuses to start; when the instrument drops mid-set, the screen says so. The simulator is `__DEV__`-gated and cannot reach a user's build.
 - **The UI never touches hardware.** Everything flows through `SensorSource` / `PoseSource` / `CoachProvider`.
 
