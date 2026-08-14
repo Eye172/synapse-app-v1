@@ -17,10 +17,15 @@ import { color, radius } from '@/src/theme/tokens';
 import { AppText } from './AppText';
 import { PressableScale } from './PressableScale';
 
-const MODE_TINT = {
-  linked: color.acid,
-  searching: color.warn,
-  offline: color.textLo,
+/**
+ * Resolved per render, not captured once: the palette is repainted in place
+ * when the ground changes, so a tint frozen at import would keep the colours
+ * of whichever theme was active when this module first loaded.
+ */
+const MODE_INK = {
+  linked: 'acid',
+  searching: 'warn',
+  offline: 'textLo',
 } as const;
 
 /** Persistent Rig state chip (§2.3). Tapping opens the Connect sheet. */
@@ -29,7 +34,7 @@ export function ConnectionChip() {
   const nodeCount = useConnectionStore((s) => s.nodeCount);
   const hz = useConnectionStore((s) => s.hz);
   const router = useRouter();
-  const tint = MODE_TINT[mode];
+  const tint = color[MODE_INK[mode]];
 
   const pulse = useSharedValue(1);
   useEffect(() => {

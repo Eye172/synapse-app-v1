@@ -107,7 +107,7 @@ export function ArmStage({
             value={config.record && camGranted}
             disabled={!camGranted}
             onValueChange={(v) => onConfig({ ...config, record: v })}
-            trackColor={{ false: 'rgba(255,255,255,0.12)', true: 'rgba(200,240,60,0.5)' }}
+            trackColor={{ false: color.lineStrong, true: 'rgba(200,240,60,0.5)' }}
             thumbColor={config.record && camGranted ? color.acid : color.textLo}
           />
         </View>
@@ -134,7 +134,7 @@ export function ArmStage({
                       alignItems: 'center',
                       borderRadius: 6,
                       borderWidth: 1,
-                      borderColor: active ? color.acid : 'rgba(255,255,255,0.1)',
+                      borderColor: active ? color.acid : color.line,
                       backgroundColor: active ? 'rgba(200,240,60,0.14)' : 'transparent',
                     }}
                   >

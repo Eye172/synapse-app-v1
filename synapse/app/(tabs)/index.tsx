@@ -7,6 +7,7 @@ import { EXERCISES, getExercise } from '@/src/data/exercises';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { computeStreak, useHistoryStore, weeklySafetyScore } from '@/src/store/historyStore';
 import { color, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { AppText } from '@/src/ui/AppText';
 import { ConnectionChip } from '@/src/ui/ConnectionChip';
 import { GridBackdrop } from '@/src/ui/GridBackdrop';
@@ -26,6 +27,7 @@ function greeting(h: number): string {
 }
 
 export default function HomeScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mode = useConnectionStore((s) => s.mode);
@@ -151,7 +153,7 @@ export default function HomeScreen() {
                 style={{
                   width: 92,
                   height: 92,
-                  backgroundColor: 'rgba(33,240,220,0.04)',
+                  backgroundColor: color.meshWash,
                   borderLeftWidth: 2,
                   borderLeftColor: color.mesh,
                   alignItems: 'center',
@@ -207,7 +209,7 @@ export default function HomeScreen() {
                     gap: space.sm,
                     paddingVertical: 10,
                     borderTopWidth: i === 0 ? 0 : 1,
-                    borderTopColor: 'rgba(255,255,255,0.05)',
+                    borderTopColor: color.lineSoft,
                   }}
                 >
                   <AppText variant="nano" color={color.textLo} style={{ width: 18 }}>

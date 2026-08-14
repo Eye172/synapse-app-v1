@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { glow } from '@/src/theme/glow';
 import { color } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 
 import { AppText } from './AppText';
 import { PressableScale } from './PressableScale';
@@ -23,6 +24,7 @@ const TAB_META: Record<string, { title: string; glyph: GlyphName }> = {
  * TRAIN is not a tab — it launches the full-screen training modal.
  */
 export function TabBar({ state, navigation }: BottomTabBarProps) {
+  useThemeMode(); // repaint this screen when the ground changes
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -71,7 +73,7 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
         right: 0,
         bottom: 0,
         paddingBottom: Math.max(insets.bottom, 8),
-        backgroundColor: 'rgba(8,10,15,0.94)',
+        backgroundColor: color.scrim,
         borderTopWidth: 1,
         borderTopColor: color.hairline,
       }}

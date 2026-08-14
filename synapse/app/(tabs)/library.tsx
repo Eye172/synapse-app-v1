@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EXERCISES } from '@/src/data/exercises';
 import type { ExerciseSpec } from '@/src/engine/types';
 import { color, radius, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { font } from '@/src/theme/typography';
 import { AppText } from '@/src/ui/AppText';
 import { Chip, RiskBadge } from '@/src/ui/Chip';
@@ -27,6 +28,7 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 export default function LibraryScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [query, setQuery] = useState('');
@@ -65,14 +67,14 @@ export default function LibraryScreen() {
           gap: space.md,
           paddingVertical: space.sm,
           borderTopWidth: 1,
-          borderTopColor: 'rgba(255,255,255,0.05)',
+          borderTopColor: color.lineSoft,
         }}
       >
         <View
           style={{
             width: 72,
             height: 72,
-            backgroundColor: 'rgba(33,240,220,0.03)',
+            backgroundColor: color.meshWash,
             borderLeftWidth: 2,
             borderLeftColor: item.riskLevel === 3 ? color.error : color.mesh,
             alignItems: 'center',
@@ -128,9 +130,9 @@ export default function LibraryScreen() {
                   fontSize: 12,
                   letterSpacing: 1,
                   color: color.textHi,
-                  backgroundColor: 'rgba(16,20,28,0.6)',
+                  backgroundColor: color.panel,
                   borderWidth: 1,
-                  borderColor: 'rgba(255,255,255,0.08)',
+                  borderColor: color.line,
                   borderRadius: radius.hud,
                   paddingHorizontal: 14,
                   paddingVertical: 10,

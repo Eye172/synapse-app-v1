@@ -125,7 +125,7 @@ export function ReportStage({
                 <Chip label="HELD" tint={color.ok} />
               )}
             </View>
-            <View style={{ height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+            <View style={{ height: 4, borderRadius: 2, backgroundColor: color.line, overflow: 'hidden' }}>
               <View
                 style={{
                   width: `${Math.min(1, r.worst) * 100}%`,

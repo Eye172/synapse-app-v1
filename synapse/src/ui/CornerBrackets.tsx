@@ -31,9 +31,18 @@ export function CornerBrackets({
   );
 }
 
+/** Same reasoning as hudTint — resolved on read, not on import. */
 export const bracketTint = {
-  acid: 'rgba(200,240,60,0.55)',
-  mesh: 'rgba(33,240,220,0.5)',
-  dim: 'rgba(153,162,174,0.35)',
-  error: color.error,
+  get acid() {
+    return color.frameAcid;
+  },
+  get mesh() {
+    return color.frameMesh;
+  },
+  get dim() {
+    return color.frameDim;
+  },
+  get error() {
+    return color.error;
+  },
 };

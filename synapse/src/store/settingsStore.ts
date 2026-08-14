@@ -2,7 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 
+import { applyTheme, type ThemeMode } from '@/src/theme/tokens';
+
 export interface SettingsState {
+  /** which ground the instrument is drawn on */
+  theme: ThemeMode;
   units: 'kg' | 'lb';
   /** spoken cues */
   voiceOn: boolean;
@@ -37,6 +41,7 @@ export interface SettingsState {
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set) => ({
+      theme: 'dark',
       units: 'kg',
       voiceOn: true,
       hapticsOn: true,
@@ -53,6 +58,17 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'synapse.settings.v1',
       storage: createJSONStorage(() => AsyncStorage),
+      // the stored theme has to reach the tokens before the first paint, or
+      // a light-theme user gets a frame of the dark palette on every launch
+      onRehydrateStorage: () => (state) => {
+        if (state) applyTheme(state.theme);
+      },
     },
   ),
 );
+
+// Repaint outside React so the tokens are already correct by the time the
+// re-render triggered by `useThemeMode` reads them.
+useSettingsStore.subscribe((s, prev) => {
+  if (s.theme !== prev.theme) applyTheme(s.theme);
+});

@@ -88,7 +88,7 @@ export function ReviewStage({
               width: '100%',
               aspectRatio: 9 / 14,
               borderRadius: radius.hud,
-              backgroundColor: 'rgba(16,20,28,0.6)',
+              backgroundColor: color.panel,
               alignItems: 'center',
               justifyContent: 'center',
             }}
@@ -105,7 +105,7 @@ export function ReviewStage({
         <AppText variant="nano" color={color.textLo}>
           FAULT TIMELINE
         </AppText>
-        <View style={{ height: 8, borderRadius: 4, backgroundColor: 'rgba(255,255,255,0.08)' }}>
+        <View style={{ height: 8, borderRadius: 4, backgroundColor: color.line }}>
           {markers.map((m, i) => (
             <View
               key={i}

@@ -330,7 +330,7 @@ export function LiveStage({
               left: 0,
               width,
               height,
-              backgroundColor: 'rgba(6,7,11,0.52)',
+              backgroundColor: color.dim,
             }}
           />
         </>
@@ -500,7 +500,7 @@ export function LiveStage({
             right: 40,
             alignItems: 'center',
             backgroundColor: 'rgba(14,18,26,0.85)',
-            borderColor: 'rgba(255,255,255,0.08)',
+            borderColor: color.line,
             borderWidth: 1,
             borderRadius: 999,
             paddingVertical: 9,
@@ -523,7 +523,7 @@ export function LiveStage({
               borderWidth: 1,
               borderColor: 'rgba(255,255,255,0.15)',
               alignItems: 'center',
-              backgroundColor: 'rgba(16,20,28,0.7)',
+              backgroundColor: color.panelSolid,
             }}
           >
             <AppText variant="bodySemi" color={color.textMid}>

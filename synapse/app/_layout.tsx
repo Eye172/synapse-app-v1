@@ -1,4 +1,4 @@
-import { DarkTheme, ThemeProvider, type Theme } from '@react-navigation/native';
+import { DarkTheme, DefaultTheme, ThemeProvider, type Theme } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
@@ -9,6 +9,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { color } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { fontMap } from '@/src/theme/typography';
 import { watchRigConfig } from '@/src/sources/udp/rigConfig';
 import { purgeStaleClips } from '@/src/train/recording';
@@ -17,20 +18,29 @@ SplashScreen.preventAutoHideAsync().catch(() => {
   /* already hidden — fine */
 });
 
-const hudTheme: Theme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    primary: color.acid,
-    background: color.void,
-    card: color.base,
-    text: color.textHi,
-    border: color.hairlineDim,
-    notification: color.acid,
-  },
-};
+/**
+ * Built per render, not at import: the tokens are repainted in place when the
+ * ground changes, and a theme object captured at module scope would keep
+ * whichever palette happened to be active when this file was first loaded.
+ */
+function navigationTheme(mode: 'dark' | 'light'): Theme {
+  const base = mode === 'light' ? DefaultTheme : DarkTheme;
+  return {
+    ...base,
+    colors: {
+      ...base.colors,
+      primary: color.acid,
+      background: color.void,
+      card: color.base,
+      text: color.textHi,
+      border: color.hairlineDim,
+      notification: color.acid,
+    },
+  };
+}
 
 export default function RootLayout() {
+  const themeMode = useThemeMode();
   const [fontsLoaded, fontError] = useFonts(fontMap);
 
   // no recording ever survives a session — even across a process kill (§2.12)
@@ -58,8 +68,8 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: color.void }}>
       <SafeAreaProvider>
-        <ThemeProvider value={hudTheme}>
-          <StatusBar style="light" backgroundColor={color.void} />
+        <ThemeProvider value={navigationTheme(themeMode)}>
+          <StatusBar style={themeMode === 'light' ? 'dark' : 'light'} backgroundColor={color.void} />
           <Stack
             screenOptions={{
               headerShown: false,

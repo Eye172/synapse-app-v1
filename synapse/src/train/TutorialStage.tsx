@@ -47,7 +47,7 @@ export function TutorialStage({ ex, onContinue }: { ex: ExerciseSpec; onContinue
               width: '100%',
               aspectRatio: 16 / 10,
               borderRadius: radius.hud,
-              backgroundColor: 'rgba(16,20,28,0.6)',
+              backgroundColor: color.panel,
               alignItems: 'center',
               justifyContent: 'center',
               gap: 6,

@@ -8,6 +8,7 @@ import { rigLink } from '@/src/sources/udp/rigLink';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { AppText } from '@/src/ui/AppText';
 import { Chip } from '@/src/ui/Chip';
 import { GridBackdrop } from '@/src/ui/GridBackdrop';
@@ -24,6 +25,7 @@ import { Section } from '@/src/ui/Section';
  * fix by whoever is wearing it rather than a new build.
  */
 export default function SensorSetupScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const mode = useConnectionStore((s) => s.mode);

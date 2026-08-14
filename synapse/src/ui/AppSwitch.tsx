@@ -20,7 +20,7 @@ export function AppSwitch({
       value={value}
       onValueChange={onValueChange}
       accessibilityLabel={accessibilityLabel}
-      trackColor={{ false: 'rgba(255,255,255,0.12)', true: 'rgba(200,240,60,0.5)' }}
+      trackColor={{ false: color.lineStrong, true: 'rgba(200,240,60,0.5)' }}
       thumbColor={value ? color.acid : color.textLo}
       {...webProps}
     />

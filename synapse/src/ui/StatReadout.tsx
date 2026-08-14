@@ -46,7 +46,7 @@ export function StatReadout({
             width,
             height: 3,
             borderRadius: 2,
-            backgroundColor: 'rgba(255,255,255,0.10)',
+            backgroundColor: color.line,
             marginTop: 4,
             overflow: 'hidden',
           }}

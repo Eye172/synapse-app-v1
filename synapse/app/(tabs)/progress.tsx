@@ -7,6 +7,7 @@ import { computeAchievements } from '@/src/data/achievements';
 import { EXERCISES } from '@/src/data/exercises';
 import { computeStreak, useHistoryStore, weeklySafetyScore } from '@/src/store/historyStore';
 import { color, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { AppText } from '@/src/ui/AppText';
 import { Chip } from '@/src/ui/Chip';
 import { EmptyState } from '@/src/ui/EmptyState';
@@ -25,6 +26,7 @@ import { TrendChart } from '@/src/ui/TrendChart';
  * Metrics only — no video exists anywhere in this store (§2.12).
  */
 export default function ProgressScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { width } = useWindowDimensions();
@@ -153,7 +155,7 @@ export default function ProgressScreen() {
                     <AppText variant="nano" color={color.textLo} numberOfLines={2} style={{ fontSize: 8.5, lineHeight: 11 }}>
                       {a.desc.toUpperCase()}
                     </AppText>
-                    <View style={{ height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
+                    <View style={{ height: 3, borderRadius: 2, backgroundColor: color.line, overflow: 'hidden' }}>
                       <View style={{ width: `${a.progress * 100}%`, height: 3, backgroundColor: a.earned ? color.acid : color.textLo }} />
                     </View>
                   </View>
@@ -179,7 +181,7 @@ export default function ProgressScreen() {
                     gap: space.md,
                     paddingVertical: 12,
                     borderTopWidth: i === 0 ? 0 : 1,
-                    borderTopColor: 'rgba(255,255,255,0.05)',
+                    borderTopColor: color.lineSoft,
                   }}
                 >
                   <View style={{ width: 44 }}>

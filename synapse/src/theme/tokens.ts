@@ -1,8 +1,22 @@
 /**
  * Biometric HUD design tokens — the single source of truth (§2.2 of the brief).
- * Dark-only. Acid = the app talking. Turquoise = the body. Red = danger only.
+ * Acid = the app talking. Turquoise = the body. Red = danger only.
+ *
+ * Two grounds, one instrument. Light is not an inversion: an inverted HUD
+ * reads as a form, and acid-on-white is both illegible and the exact "council
+ * website" look this app is trying not to have. So the ground becomes warm
+ * paper rather than white, and the accents darken into inks that carry the
+ * same meanings at readable contrast — acid stays the app's voice, it just
+ * speaks in olive on paper instead of lime on black.
+ *
+ * `color` is mutated in place rather than swapped, so all ~385 existing
+ * `color.x` reads keep working untouched. Nothing here notifies React;
+ * `applyTheme` runs synchronously before the re-render that `useThemeMode`
+ * triggers, so a render always sees a consistent palette.
  */
-export const color = {
+export type ThemeMode = 'dark' | 'light';
+
+const DARK = {
   // canvas
   void: '#06070B',
   base: '#0A0C12',
@@ -12,6 +26,28 @@ export const color = {
   hairline: 'rgba(200,240,60,0.10)',
   hairlineDim: 'rgba(255,255,255,0.06)',
   gridLine: 'rgba(140,160,190,0.08)',
+
+  // structural greys — borders, panel fills and overlays that were literals
+  // scattered through the components before there was a second ground
+  line: 'rgba(255,255,255,0.08)',
+  lineSoft: 'rgba(255,255,255,0.05)',
+  lineStrong: 'rgba(255,255,255,0.14)',
+  panel: 'rgba(16,20,28,0.6)',
+  panelSolid: 'rgba(16,20,28,0.7)',
+  scrim: 'rgba(8,10,15,0.94)',
+  dim: 'rgba(6,7,11,0.52)',
+  meshWash: 'rgba(33,240,220,0.04)',
+
+  // HUD frame + corner bracket strokes, per accent
+  frameAcid: 'rgba(200,240,60,0.55)',
+  frameMesh: 'rgba(33,240,220,0.5)',
+  frameDim: 'rgba(153,162,174,0.3)',
+  frameError: 'rgba(255,59,92,0.6)',
+  frameBlue: 'rgba(46,107,255,0.55)',
+
+  // the backdrop's ambient wash — barely-there colour in the corners
+  auraBlue: 'rgba(46,107,255,0.055)',
+  auraAcid: 'rgba(200,240,60,0.035)',
 
   // brand + accents
   acid: '#C8F03C',
@@ -35,7 +71,73 @@ export const color = {
   // on-accent ink
   inkOnAcid: '#0B0F03',
   inkOnError: '#12030A',
-} as const;
+};
+
+type Palette = typeof DARK;
+
+const LIGHT: Palette = {
+  // warm paper, never white — white plus green is the municipal-portal look
+  void: '#EDEEE7',
+  base: '#F4F5F0',
+  surface1: '#FFFFFF',
+  surfaceGlass: 'rgba(255,255,255,0.72)',
+  surfaceGlassHeavy: 'rgba(252,252,249,0.95)',
+  hairline: 'rgba(92,122,12,0.28)',
+  hairlineDim: 'rgba(20,26,18,0.12)',
+  gridLine: 'rgba(40,60,90,0.07)',
+
+  line: 'rgba(20,26,18,0.14)',
+  lineSoft: 'rgba(20,26,18,0.09)',
+  lineStrong: 'rgba(20,26,18,0.22)',
+  panel: 'rgba(255,255,255,0.78)',
+  panelSolid: 'rgba(255,255,255,0.92)',
+  scrim: 'rgba(237,238,231,0.95)',
+  dim: 'rgba(237,238,231,0.62)',
+  meshWash: 'rgba(11,127,116,0.06)',
+
+  // heavier on paper: a 55%-alpha stroke that reads as a glowing edge on
+  // black turns into a faint smudge on white
+  frameAcid: 'rgba(79,107,10,0.55)',
+  frameMesh: 'rgba(11,124,114,0.5)',
+  frameDim: 'rgba(89,99,107,0.35)',
+  frameError: 'rgba(192,27,58,0.55)',
+  frameBlue: 'rgba(29,78,216,0.5)',
+
+  // on paper a blue haze reads as a printing fault; warm the corners instead
+  auraBlue: 'rgba(29,78,216,0.035)',
+  auraAcid: 'rgba(79,107,10,0.045)',
+
+  // the same voices, pitched to be read as ink rather than as light
+  acid: '#4F6B0A',
+  acidPress: '#3D5307',
+  acidGlow: 'rgba(79,107,10,0.22)',
+  mesh: '#0B7C72',
+  meshGlow: 'rgba(11,124,114,0.24)',
+  blue: '#1D4ED8',
+
+  ok: '#0C7F55',
+  warn: '#8A5A00',
+  error: '#C01B3A',
+  errorGlow: 'rgba(192,27,58,0.22)',
+
+  textHi: '#12170F',
+  textMid: '#59636B',
+  textLo: '#7B848D',
+
+  // filled accents carry white ink on this ground, not near-black
+  inkOnAcid: '#FFFFFF',
+  inkOnError: '#FFFFFF',
+};
+
+/**
+ * The live palette. Mutable on purpose — see the note above.
+ */
+export const color: Palette = { ...DARK };
+
+/** Repaint every token in place. Safe to call before React has mounted. */
+export function applyTheme(mode: ThemeMode): void {
+  Object.assign(color, mode === 'light' ? LIGHT : DARK);
+}
 
 /** 4pt base. Screen gutters 20. */
 export const space = {

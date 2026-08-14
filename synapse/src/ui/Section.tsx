@@ -33,7 +33,7 @@ export function Section({
   return (
     <View style={[{ paddingHorizontal: space.gutter }, style]}>
       {!first ? (
-        <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: space.md }} />
+        <View style={{ height: 1, backgroundColor: color.lineSoft, marginBottom: space.md }} />
       ) : null}
       {label ? (
         <View
@@ -98,7 +98,7 @@ export function Bar({
   fill,
   tint = color.acid,
   height = 2,
-  track = 'rgba(255,255,255,0.10)',
+  track = color.line,
 }: {
   fill: number;
   tint?: string;

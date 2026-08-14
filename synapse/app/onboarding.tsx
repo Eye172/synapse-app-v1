@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { EXERCISES } from '@/src/data/exercises';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { AppText } from '@/src/ui/AppText';
 import { Chip } from '@/src/ui/Chip';
 import { GridBackdrop } from '@/src/ui/GridBackdrop';
@@ -19,6 +20,7 @@ import { PrimaryButton } from '@/src/ui/PrimaryButton';
  * link works — then straight into Connect. Never shown again.
  */
 export default function OnboardingScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
@@ -127,7 +129,7 @@ export default function OnboardingScreen() {
                 width: page === i ? 20 : 7,
                 height: 7,
                 borderRadius: 4,
-                backgroundColor: page === i ? color.acid : 'rgba(255,255,255,0.18)',
+                backgroundColor: page === i ? color.acid : color.lineStrong,
               }}
             />
           ))}

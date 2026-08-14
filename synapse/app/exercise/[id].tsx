@@ -8,6 +8,7 @@ import { getExercise } from '@/src/data/exercises';
 import { tutorialVideo } from '@/src/data/videos';
 import type { ExerciseSpec } from '@/src/engine/types';
 import { color, radius, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { AppText } from '@/src/ui/AppText';
 import { Chip, RiskBadge } from '@/src/ui/Chip';
 import { EmptyState } from '@/src/ui/EmptyState';
@@ -32,9 +33,9 @@ function LessonClip({ ex }: { ex: ExerciseSpec }) {
         style={{
           height: 150,
           borderRadius: radius.hud,
-          backgroundColor: 'rgba(16,20,28,0.6)',
+          backgroundColor: color.panel,
           borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.06)',
+          borderColor: color.lineSoft,
           alignItems: 'center',
           justifyContent: 'center',
           gap: 4,
@@ -65,6 +66,7 @@ function LessonClip({ ex }: { ex: ExerciseSpec }) {
 }
 
 export default function ExerciseDetailScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();

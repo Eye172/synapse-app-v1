@@ -12,6 +12,7 @@ import type { SetSummary } from '@/src/engine/setSession';
 import { createSetSources, type SourceBundle } from '@/src/sources/provider';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { ArmStage, type TrainConfig } from '@/src/train/ArmStage';
 import { LiveStage, type FaultMarker, type LiveResult } from '@/src/train/LiveStage';
 import { PositionStage } from '@/src/train/PositionStage';
@@ -34,6 +35,7 @@ type Stage = 'select' | 'loading' | 'tutorial' | 'arm' | 'noSource' | 'position'
  * GET_INTO_POSITION → LIVE_SET → REVIEW (ephemeral) → REPORT → out.
  */
 export default function TrainScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { exercise: exerciseParam } = useLocalSearchParams<{ exercise?: string }>();
@@ -199,10 +201,10 @@ export default function TrainScreen() {
                   height: 32,
                   borderRadius: 8,
                   borderWidth: 1,
-                  borderColor: 'rgba(255,255,255,0.14)',
+                  borderColor: color.lineStrong,
                   alignItems: 'center',
                   justifyContent: 'center',
-                  backgroundColor: 'rgba(16,20,28,0.6)',
+                  backgroundColor: color.panel,
                 }}
               >
                 <AppText variant="h3" color={color.textMid} style={{ marginTop: -2 }}>

@@ -7,6 +7,7 @@ import { getAiKey, setAiKey, verifyAiKey } from '@/src/coach/aiKeyStore';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, radius, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { font } from '@/src/theme/typography';
 import { AppSwitch } from '@/src/ui/AppSwitch';
 import { AppText } from '@/src/ui/AppText';
@@ -51,7 +52,7 @@ function Row({
 }
 
 function Divider() {
-  return <View style={{ height: 1, backgroundColor: 'rgba(255,255,255,0.05)' }} />;
+  return <View style={{ height: 1, backgroundColor: color.lineSoft }} />;
 }
 
 /**
@@ -95,9 +96,9 @@ function KitSection({ onConnect }: { onConnect: () => void }) {
                 fontFamily: font.mono,
                 fontSize: 12,
                 color: color.textHi,
-                backgroundColor: 'rgba(16,20,28,0.7)',
+                backgroundColor: color.panelSolid,
                 borderWidth: 1,
-                borderColor: 'rgba(255,255,255,0.1)',
+                borderColor: color.line,
                 borderRadius: radius.hud,
                 paddingHorizontal: 12,
                 paddingVertical: 9,
@@ -205,9 +206,9 @@ function AiCoachSection() {
               fontFamily: font.mono,
               fontSize: 12,
               color: color.textHi,
-              backgroundColor: 'rgba(16,20,28,0.7)',
+              backgroundColor: color.panelSolid,
               borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.1)',
+              borderColor: color.line,
               borderRadius: radius.hud,
               paddingHorizontal: 12,
               paddingVertical: 9,
@@ -267,6 +268,7 @@ function AiCoachSection() {
 }
 
 export default function ProfileScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const settings = useSettingsStore();
@@ -350,6 +352,20 @@ export default function ProfileScreen() {
               right={
                 <PressableScale onPress={() => settings.set({ units: settings.units === 'kg' ? 'lb' : 'kg' })} accessibilityRole="button" accessibilityLabel="Toggle units">
                   <Chip label={settings.units.toUpperCase()} tint={color.acid} />
+                </PressableScale>
+              }
+            />
+            <Divider />
+            <Row
+              label="Theme"
+              sub={settings.theme === 'light' ? 'PAPER · FOR BRIGHT GYMS' : 'DARK · FOR THE LIFTING FLOOR'}
+              right={
+                <PressableScale
+                  onPress={() => settings.set({ theme: settings.theme === 'light' ? 'dark' : 'light' })}
+                  accessibilityRole="button"
+                  accessibilityLabel="Toggle theme"
+                >
+                  <Chip label={settings.theme === 'light' ? 'LIGHT' : 'DARK'} tint={color.acid} />
                 </PressableScale>
               }
             />

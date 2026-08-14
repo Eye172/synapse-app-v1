@@ -11,6 +11,7 @@ import { RIG_UDP_PORT } from '@/src/sources/udp/UdpSensorSource';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
+import { useThemeMode } from '@/src/theme/useThemeMode';
 import { AppText } from '@/src/ui/AppText';
 import { Chip } from '@/src/ui/Chip';
 import { GlassCard } from '@/src/ui/GlassCard';
@@ -56,6 +57,7 @@ function Credential({ label, value }: { label: string; value: string }) {
  * CALIBRATE → LINKED.
  */
 export default function ConnectScreen() {
+  useThemeMode(); // repaint this screen when the ground changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const mode = useConnectionStore((s) => s.mode);
@@ -145,7 +147,7 @@ export default function ConnectScreen() {
             const active = stepIndex >= i + 1;
             return (
               <View key={label} style={{ flex: 1, gap: 4 }}>
-                <View style={{ height: 3, borderRadius: 2, backgroundColor: active ? color.acid : 'rgba(255,255,255,0.10)' }} />
+                <View style={{ height: 3, borderRadius: 2, backgroundColor: active ? color.acid : color.line }} />
                 <AppText variant="nano" color={active ? color.acid : color.textLo}>
                   {label}
                 </AppText>
@@ -191,7 +193,7 @@ export default function ConnectScreen() {
                           width: 5,
                           height: 5,
                           borderRadius: 3,
-                          backgroundColor: faulted ? color.error : reporting ? color.mesh : 'rgba(255,255,255,0.14)',
+                          backgroundColor: faulted ? color.error : reporting ? color.mesh : color.lineStrong,
                         }}
                       />
                       <AppText variant="nano" color={reporting ? color.textMid : color.textLo} style={{ width: 74 }}>
@@ -278,7 +280,7 @@ export default function ConnectScreen() {
                 <AppText variant="display" color={color.mesh} style={{ fontSize: 36, lineHeight: 40 }}>
                   {`${Math.round(calProgress * 100)}%`}
                 </AppText>
-                <View style={{ width: '80%', height: 4, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                <View style={{ width: '80%', height: 4, borderRadius: 2, backgroundColor: color.line, overflow: 'hidden' }}>
                   <View style={{ width: `${calProgress * 100}%`, height: 4, backgroundColor: color.mesh }} />
                 </View>
               </GlassCard>
@@ -307,7 +309,7 @@ export default function ConnectScreen() {
                         paddingVertical: 12,
                         borderRadius: 10,
                         borderWidth: 1,
-                        borderColor: 'rgba(255,255,255,0.14)',
+                        borderColor: color.lineStrong,
                         alignItems: 'center',
                       }}
                     >

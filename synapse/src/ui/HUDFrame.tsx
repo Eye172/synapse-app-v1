@@ -27,7 +27,7 @@ export function HUDFrame({
           backgroundColor: 'rgba(16,20,28,0.45)',
           borderRadius: radius.hud,
           borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.05)',
+          borderColor: color.lineSoft,
         },
         padded && { padding: space.md },
         style,
@@ -39,12 +39,26 @@ export function HUDFrame({
   );
 }
 
+/**
+ * Read through getters so a tint picked up at import time cannot outlive the
+ * ground it was chosen for. Call sites keep using `hudTint.mesh` unchanged.
+ */
 export const hudTint = {
-  acid: 'rgba(200,240,60,0.55)',
-  mesh: 'rgba(33,240,220,0.5)',
-  dim: 'rgba(153,162,174,0.3)',
-  error: 'rgba(255,59,92,0.6)',
-  blue: 'rgba(46,107,255,0.55)',
+  get acid() {
+    return color.frameAcid;
+  },
+  get mesh() {
+    return color.frameMesh;
+  },
+  get dim() {
+    return color.frameDim;
+  },
+  get error() {
+    return color.frameError;
+  },
+  get blue() {
+    return color.frameBlue;
+  },
 };
 
 export { color as hudColor };

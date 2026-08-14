@@ -43,7 +43,7 @@ export function GridBackdrop({ grid = true }: { grid?: boolean }) {
               width: size.w * 1.1,
               height: size.w * 1.1,
               borderRadius: size.w * 0.55,
-              backgroundColor: 'rgba(46,107,255,0.055)',
+              backgroundColor: color.auraBlue,
             }}
           />
           <View
@@ -54,7 +54,7 @@ export function GridBackdrop({ grid = true }: { grid?: boolean }) {
               width: size.w * 0.6,
               height: size.w * 0.6,
               borderRadius: size.w * 0.3,
-              backgroundColor: 'rgba(46,107,255,0.05)',
+              backgroundColor: color.auraBlue,
             }}
           />
           {/* acid pool, bottom-left */}
@@ -66,7 +66,7 @@ export function GridBackdrop({ grid = true }: { grid?: boolean }) {
               width: size.w * 0.9,
               height: size.w * 0.9,
               borderRadius: size.w * 0.45,
-              backgroundColor: 'rgba(200,240,60,0.035)',
+              backgroundColor: color.auraAcid,
             }}
           />
         </>
