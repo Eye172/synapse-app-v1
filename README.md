@@ -15,7 +15,7 @@ Synapse grades what its sensors can actually see. If neither the Rig nor the cam
 
 This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
 
-A simulator does exist — it drives the 142-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
+A simulator does exist — it drives the 155-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
 
 ### Run it
 
@@ -43,18 +43,34 @@ node scripts/send-test-packet.js <phone-ip> --stream
 | Full training loop: select → tutorial → arm → position-lock → live set → ephemeral review → report | BLE transport + auto-pairing |
 | Deterministic **form-rule engine**: continuous severity grading, safety alerts, hysteresis rep counting, tempo & symmetry | Per-joint quaternions (a second IMU below each knee/elbow) |
 | **The Mesh**: Skia skeleton with backbone, ghost alignment, fault tinting — **drawn by the Rig itself** via forward kinematics, or by the camera | Cloud accounts, program sync, coach-shared programs |
-| **Rig link**: UDP `:1234`, five-node quaternion protocol v2 (both wire forms) + legacy payloads, connect wizard, per-node calibration | Real-time interruptible voice coaching |
+| **Rig link**: UDP `:1234`, five-node quaternion protocol v2 (three wire forms) + legacy payloads, connect wizard, per-node calibration | Real-time interruptible voice coaching |
 | **AI Coach**: RuleCoach always-on (offline); optional Claude coach (`claude-haiku-4-5` in-set ≤8 words, `claude-sonnet-5` debrief) with hard no-fabrication guards | PT / clinical mode |
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup, dark + paper themes | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by 142 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by 155 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
 ## The Rig protocol (v2 — five nodes, quaternions)
 
-The exoskeleton carries one IMU per limb plus the back, and ships each frame as a JSON string over UDP to `:1234`. Both spellings below are accepted and carry identical information — use whichever the firmware finds cheaper to serialize.
+The exoskeleton carries one IMU per limb plus the back, and ships each frame as a JSON string over UDP to `:1234`. Three spellings are accepted; the first is what the firmware sends today and the others are kept so a rig on older firmware still connects.
+
+**Current form** — the node's value *is* its quaternion, `[r, i, j, k]`, read as
+`pack.leftLeg[0]`…`pack.leftLeg[3]`:
+
+```json
+{"back":[0.0,0.0,0.0,0.0],
+ "leftArm":[0.0,0.0,0.0,0.0],
+ "leftLeg":[0.0,0.0,0.0,0.0],
+ "rightArm":[0.0,0.0,0.0,0.0],
+ "rightLeg":[0.0,0.0,0.0,0.0]}
+```
+
+It carries orientation and nothing else — **there is no fault flag in this
+form.** Grading is unaffected (the rule engine judges geometry), but the
+firmware's own `alert`, which could raise a safety stop on its own authority,
+has no way to reach the app. The two earlier spellings below still parse.
 
 `a` is the node's alert flag, `q` its quaternion.
 
@@ -83,10 +99,10 @@ Contract details the parser enforces:
 | Point | Rule |
 |---|---|
 | **Array order** | `[0] back, [1] leftArm, [2] leftLeg, [3] rightArm, [4] rightLeg` — positional, from `RIG_NODE_ORDER` |
-| **`q` shape** | An object `{r,i,j,k}` in the named form, a packed array in the compact one. The two can never be confused — the parser tells them apart by shape, not by key |
-| **`q` order** | Packed: `[r, i, j, k]`, scalar first, matching the named form's own field order. A runtime toggle (Sensor setup) flips it if firmware packs scalar-last; the named form is unambiguous and ignores it |
-| **Alerts** | Per node, under `a`. Any node alerting raises the frame alert and a safety stop on its own authority |
-| **Key spelling** | `a`/`q` is what the firmware ships. The earlier `alert`/`quaternions` still parse — a rig running older firmware would otherwise be indistinguishable from dead hardware |
+| **Node value** | An array is the packed quaternion; an object holds named fields. Inside an object, `q` as an object is spelled out and `q` as an array is packed. None of the four can be confused — the parser reads shape, not key names |
+| **`q` order** | Packed: `[r, i, j, k]`, scalar first. A runtime toggle (Sensor setup) flips it if firmware packs scalar-last, and the screen says whether it applies to the rig currently talking; a spelled-out `{r,i,j,k}` is unambiguous and ignores it |
+| **Alerts** | Per node, under `a`, **where the form has one**. The packed form does not: no node claims a flag it never received, and the frame reports "no alert raised" rather than "no fault" |
+| **Key spelling** | Every revision still parses — packed, `a`/`q`, and the original `alert`/`quaternions`. A rig on older firmware would otherwise be indistinguishable from dead hardware |
 | **Zero quaternions** | `{r:0,i:0,j:0,k:0}` is not a rotation — it is what an uninitialized or failed IMU read looks like, so it is dropped rather than drawn. The node still reports, and its `a` flag still counts; only the orientation is withheld. Identity is `r:1`. |
 | **Partial rigs** | A frame with 2 of 5 nodes is valid — dead straps degrade, they don't break the session |
 | **Python reprs** | A raw `str(dict)` (single quotes, `False`/`True`/`None`) is repaired rather than dropped |
@@ -159,7 +175,7 @@ synapse/
 └── assets/                 # generated brand assets + the two lesson clips we can honestly label
 ```
 
-Verification: `npm run typecheck` · `npm test` (142 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+Verification: `npm run typecheck` · `npm test` (155 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
 
 ### Non-negotiables, enforced in code
 

@@ -113,6 +113,95 @@ describe('Rig payload normalizer — v2 compact array', () => {
   });
 });
 
+describe('Rig payload normalizer — v2 packed named form', () => {
+  // the shape the firmware ships now: the node value IS the quaternion
+  const packed = {
+    back: [1.0, 0.0, 0.0, 0.0],
+    leftArm: [s, s, 0.0, 0.0],
+    leftLeg: [1.0, 0.0, 0.0, 0.0],
+    rightArm: [1.0, 0.0, 0.0, 0.0],
+    rightLeg: [1.0, 0.0, 0.0, 0.0],
+  };
+
+  it('reads all five nodes off bare arrays', () => {
+    const f = parseRigPayload(JSON.stringify(packed), NOW)!;
+    expect(f).not.toBeNull();
+    expect(f.protocol).toBe('v2-packed');
+    expect(f.nodes).toHaveLength(5);
+    expect(f.nodes.map((n) => n.id).sort()).toEqual(
+      ['back', 'leftArm', 'leftLeg', 'rightArm', 'rightLeg'].sort(),
+    );
+  });
+
+  it('indexes the components as [0]=r [1]=i [2]=j [3]=k', () => {
+    const f = parseRigPayload(JSON.stringify(packed), NOW)!;
+    const leftArm = f.nodes.find((n) => n.id === 'leftArm')!;
+    expect(leftArm.quat![0]).toBeCloseTo(s, 5); // r
+    expect(leftArm.quat![1]).toBeCloseTo(s, 5); // i
+    expect(leftArm.quat![2]).toBeCloseTo(0, 5); // j
+    expect(leftArm.quat![3]).toBeCloseTo(0, 5); // k
+  });
+
+  it('carries no fault flag, and does not invent one', () => {
+    // this form has no alert field at all — the frame must say "no alert
+    // reported", never "no fault", and no node may claim a flag it never got
+    const f = parseRigPayload(JSON.stringify(packed), NOW)!;
+    expect(f.flags.alert).toBe(false);
+    for (const n of f.nodes) expect(n.alert).toBeUndefined();
+  });
+
+  it('places the same body as the spelled-out form', () => {
+    const spelled = parseRigPayload(
+      JSON.stringify({
+        back: { q: { r: 1, i: 0, j: 0, k: 0 } },
+        leftArm: { q: { r: s, i: s, j: 0, k: 0 } },
+        leftLeg: { q: { r: 1, i: 0, j: 0, k: 0 } },
+        rightArm: { q: { r: 1, i: 0, j: 0, k: 0 } },
+        rightLeg: { q: { r: 1, i: 0, j: 0, k: 0 } },
+      }),
+      NOW,
+    )!;
+    const asPacked = parseRigPayload(JSON.stringify(packed), NOW)!;
+    const key = (f: typeof spelled) =>
+      [...f.nodes].sort((a, b) => a.id.localeCompare(b.id)).map((n) => `${n.id}:${n.quat?.join(',')}`);
+    expect(key(asPacked)).toEqual(key(spelled));
+  });
+
+  it('accepts a partial rig', () => {
+    const f = parseRigPayload(JSON.stringify({ back: [1, 0, 0, 0], leftLeg: [1, 0, 0, 0] }), NOW)!;
+    expect(f.nodes).toHaveLength(2);
+    expect(f.protocol).toBe('v2-packed');
+  });
+
+  it('tolerates the Python repr of this form too', () => {
+    const f = parseRigPayload("{'back': [1.0, 0.0, 0.0, 0.0]}", NOW)!;
+    expect(f).not.toBeNull();
+    expect(f.nodes[0]!.id).toBe('back');
+    expect(f.nodes[0]!.quat![0]).toBeCloseTo(1, 5);
+  });
+
+  it('is still labelled named when a node spells its fields out', () => {
+    // a mixed frame must not claim to be packed — the label drives whether
+    // Sensor setup says the component-order toggle applies
+    const f = parseRigPayload(
+      JSON.stringify({ back: [1, 0, 0, 0], leftLeg: { a: true, q: { r: 1, i: 0, j: 0, k: 0 } } }),
+      NOW,
+    )!;
+    expect(f.protocol).toBe('v2-named');
+    expect(f.flags.alert).toBe(true);
+  });
+
+  it.each([
+    ['three components', '{"back":[1,0,0]}'],
+    ['five components', '{"back":[1,0,0,0,0]}'],
+    ['strings', '{"back":["1","0","0","0"]}'],
+    ['all zeroes — not a rotation', '{"back":[0,0,0,0]}'],
+    ['nested arrays', '{"back":[[1],[0],[0],[0]]}'],
+  ])('rejects %s', (_n, payload) => {
+    expect(parseRigPayload(payload, NOW)).toBeNull();
+  });
+});
+
 describe('the earlier key spelling still parses', () => {
   // A rig in the field may be running firmware from before the rename. The
   // failure mode of dropping it would be indistinguishable from dead

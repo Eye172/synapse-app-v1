@@ -55,8 +55,10 @@ export function RigTuningPanel() {
   }, []);
 
   const state = frame ? rigBodyState(frame, new RigCalibration()) : null;
-  // only the packed array form is ambiguous about component order
-  const quatOrderApplies = frame?.protocol === 'v2-array';
+  // any packed form is ambiguous about component order — the compact array and
+  // the named-keys-with-packed-values form alike. Only a spelled-out
+  // {r,i,j,k} says which component is which.
+  const quatOrderApplies = frame?.protocol === 'v2-array' || frame?.protocol === 'v2-packed';
 
   return (
     <View style={{ gap: space.sm }}>
@@ -94,8 +96,8 @@ export function RigTuningPanel() {
             {frame === null
               ? 'APPLIES ONLY TO THE PACKED ARRAY FORM'
               : quatOrderApplies
-                ? 'THIS RIG SENDS PACKED ARRAYS — THIS SETTING APPLIES'
-                : 'THIS RIG SENDS NAMED {R,I,J,K} — THIS SETTING DOES NOTHING HERE'}
+                ? 'THIS RIG SENDS PACKED QUATERNIONS — THIS SETTING APPLIES'
+                : 'THIS RIG SPELLS OUT {R,I,J,K} — THIS SETTING DOES NOTHING HERE'}
           </AppText>
         </View>
 

@@ -13,6 +13,9 @@ import {
  *
  * Four wire formats are accepted, newest first:
  *
+ *  v2-packed {"back":[r,i,j,k], "leftArm":[…], "leftLeg":[…],
+ *             "rightArm":[…], "rightLeg":[…]}   ← current firmware
+ *
  *  v2-named  {"back":{"a":false,"q":{"r":0,"i":0,"j":0,"k":0}},
  *             "leftArm":{…},"leftLeg":{…},"rightArm":{…},"rightLeg":{…}}
  *
@@ -24,11 +27,13 @@ import {
  * Both v2 forms carry the same information; the array form is the compact one
  * and its element order is positional, so RIG_NODE_ORDER is the contract.
  *
- * `a` and `q` are the firmware's spellings. The longer `alert`/`quaternions`
- * an earlier revision used are still read, because a rig in the field may be
- * running either and a silent mismatch would look exactly like dead hardware.
- * The two are never ambiguous: `q` holding an object is the named quaternion,
- * `q` holding an array is the packed one.
+ * The packed form carries the quaternion and nothing else — it has no fault
+ * flag at all. Every earlier spelling is still read (`a`/`alert`,
+ * `q`/`quaternions`), because a rig in the field may be running any of them
+ * and a silent mismatch looks exactly like dead hardware. None of them can be
+ * confused: a node value that is an array is the packed quaternion, a node
+ * value that is an object holds named fields, and within those, `q` as an
+ * object is the named quaternion while `q` as an array is the packed one.
  */
 
 const MAX_PAYLOAD_BYTES = 4096;
@@ -182,15 +187,25 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
 
   if (!isObject(obj)) return null;
 
-  // ---- v2 named: {"back":{…}, "leftArm":{…}, …} ----
-  const namedKeys = Object.keys(obj).filter((k) => isRigNodeId(k) && isObject(obj[k]));
+  // ---- v2 named, packed or spelled out ----
+  //   packed:  {"back":[r,i,j,k], …}        ← the node value IS the quaternion
+  //   spelled: {"back":{"a":…,"q":…}, …}
+  const namedKeys = Object.keys(obj).filter(
+    (k) => isRigNodeId(k) && (isObject(obj[k]) || Array.isArray(obj[k])),
+  );
   if (namedKeys.length > 0) {
     const nodes: SensorNode[] = [];
     let anyAlert = false;
+    // a frame is "packed" only if every node it carries arrived that way;
+    // the label drives the diagnostics screen, so it must not overstate
+    let packedNodes = 0;
     for (const key of namedKeys) {
-      const entry = obj[key] as Record<string, unknown>;
-      const quat = readNodeQuat(entry);
-      const alert = readNodeAlert(entry);
+      const raw = obj[key];
+      const packed = Array.isArray(raw);
+      // the packed form is a bare array, so it is exactly as ambiguous about
+      // component order as the compact form and obeys the same runtime toggle
+      const quat = packed ? readQuatArray(raw, v2ScalarLast) : readNodeQuat(raw as Record<string, unknown>);
+      const alert = packed ? undefined : readNodeAlert(raw as Record<string, unknown>);
       if (quat === undefined && alert === undefined) continue;
       const node: SensorNode = { id: key as RigNodeId };
       if (quat) node.quat = quat;
@@ -198,10 +213,16 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
         node.alert = alert;
         anyAlert = anyAlert || alert;
       }
+      if (packed) packedNodes += 1;
       nodes.push(node);
     }
     if (nodes.length === 0) return null;
-    const frame: SensorFrame = { t: now, nodes, flags: { alert: anyAlert }, protocol: 'v2-named' };
+    const frame: SensorFrame = {
+      t: now,
+      nodes,
+      flags: { alert: anyAlert },
+      protocol: packedNodes === nodes.length ? 'v2-packed' : 'v2-named',
+    };
     if (finite(obj.batt) && obj.batt >= 0 && obj.batt <= 100) frame.battery = obj.batt;
     return frame;
   }

@@ -11,7 +11,12 @@ function emit(flags: string): string {
 }
 
 describe('emulator → parser → body model, end to end', () => {
-  it.each([['named', ''], ['compact', '--compact'], ['legacy', '--legacy']])(
+  it.each([
+    ['packed', ''],
+    ['spelled', '--spelled'],
+    ['compact', '--compact'],
+    ['legacy', '--legacy'],
+  ])(
     'the %s form the emulator sends is understood by the app',
     (_name, flags) => {
       const wire = emit(flags);
@@ -23,7 +28,7 @@ describe('emulator → parser → body model, end to end', () => {
   );
 
   it('the five-node forms place a real body with real joint angles', () => {
-    for (const flags of ['', '--compact']) {
+    for (const flags of ['', '--spelled', '--compact']) {
       const frame = parseRigPayload(emit(flags), 1000)!;
       expect(frame.nodes).toHaveLength(5);
       const m = rigMetrics(rigBodyState(frame, new RigCalibration()));

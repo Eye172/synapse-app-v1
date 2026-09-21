@@ -87,7 +87,7 @@ export interface SensorFrame {
   flags: { alert?: boolean };
   battery?: number;
   /** which wire format produced this frame — surfaced in diagnostics */
-  protocol: 'v0' | 'v1' | 'v2-named' | 'v2-array';
+  protocol: 'v0' | 'v1' | 'v2-named' | 'v2-packed' | 'v2-array';
 }
 
 export interface SensorNode {

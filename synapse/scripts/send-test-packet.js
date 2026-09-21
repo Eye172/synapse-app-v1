@@ -2,10 +2,16 @@
  * Emulate the Rig over UDP — the fastest way to exercise the real link
  * without hardware.
  *
- *   node scripts/send-test-packet.js <phone-ip>                   one frame
- *   node scripts/send-test-packet.js <phone-ip> --stream          10 Hz squat cycle
- *   node scripts/send-test-packet.js <phone-ip> --stream --compact  array form
- *   node scripts/send-test-packet.js <phone-ip> --legacy           prototype {angle,alert}
+ *   node scripts/send-test-packet.js <phone-ip>                     one frame
+ *   node scripts/send-test-packet.js <phone-ip> --stream            10 Hz squat cycle
+ *   node scripts/send-test-packet.js <phone-ip> --stream --compact  compact array form
+ *   node scripts/send-test-packet.js <phone-ip> --stream --spelled  named {a,q} form
+ *   node scripts/send-test-packet.js <phone-ip> --legacy             prototype {angle,alert}
+ *
+ * The default is what the firmware ships today: named keys whose value is the
+ * bare quaternion, [r,i,j,k]. That form has no fault flag, so the knee fault
+ * below shows up only as geometry — which is the honest test, since that is
+ * all the app will get from the real rig.
  *
  * The streamed motion is a real squat: the trunk inclines while the thighs
  * rotate through the hinge, and one rep in four collapses a knee inward so
@@ -17,6 +23,7 @@ const args = process.argv.slice(2);
 const host = args.find((a) => !a.startsWith('--')) ?? '192.168.43.1';
 const stream = args.includes('--stream');
 const compact = args.includes('--compact');
+const spelled = args.includes('--spelled');
 const legacy = args.includes('--legacy');
 const PORT = 1234;
 
@@ -69,16 +76,27 @@ function buildPayload(cycle, faulted) {
   // the firmware flags a node when its own segment leaves tolerance
   const alertFor = (id) => (id === 'leftLeg' || id === 'rightLeg' ? faulted && cycle > 0.35 && cycle < 0.65 : false);
 
-  // `a` is the alert flag, `q` the quaternion — an object in the named form,
-  // a packed array in the compact one
+  const round = (id) => pose[id].map((x) => Math.round(x * 10000) / 10000);
+
+  // compact: a positional array of five {a, q:[…]} entries
   if (compact) {
-    return ORDER.map((id) => ({ a: alertFor(id), q: pose[id].map((x) => Math.round(x * 10000) / 10000) }));
+    return ORDER.map((id) => ({ a: alertFor(id), q: round(id) }));
   }
+
+  // spelled out: named keys, `a` for the flag and `q` as {r,i,j,k}
+  if (spelled) {
+    const out = {};
+    for (const id of ORDER) {
+      const [r, i, j, k] = round(id);
+      out[id] = { a: alertFor(id), q: { r, i, j, k } };
+    }
+    return out;
+  }
+
+  // default — current firmware: the node's value IS its quaternion, and there
+  // is nowhere to put a fault flag
   const out = {};
-  for (const id of ORDER) {
-    const [r, i, j, k] = pose[id].map((x) => Math.round(x * 10000) / 10000);
-    out[id] = { a: alertFor(id), q: { r, i, j, k } };
-  }
+  for (const id of ORDER) out[id] = round(id);
   return out;
 }
 
@@ -96,7 +114,13 @@ if (!stream) {
   console.log(`→ ${host}:${PORT}`, JSON.stringify(payload));
   setTimeout(() => socket.close(), 300);
 } else {
-  const form = legacy ? 'legacy {angle,alert}' : compact ? 'v2 compact array' : 'v2 named object';
+  const form = legacy
+    ? 'legacy {angle,alert}'
+    : compact
+      ? 'v2 compact array'
+      : spelled
+        ? 'v2 named {a,q}'
+        : 'v2 packed [r,i,j,k]';
   console.log(`streaming a simulated squat (${form}) to ${host}:${PORT} — ctrl-c to stop`);
   let t = 0;
   let rep = 1;
