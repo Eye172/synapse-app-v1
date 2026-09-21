@@ -25,6 +25,7 @@ import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
 import { CornerBrackets } from '@/src/ui/CornerBrackets';
 import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
+import { MeshView3D } from '@/src/ui/MeshView3D';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
 
@@ -300,6 +301,9 @@ export function LiveStage({
   // shape. A frozen skeleton reads exactly like a still one — the lifter has
   // to be told the difference, mid-set, without looking away from the bar.
   const rigLinkLost = sources.poseOrigin === 'rig' && linkMode !== 'linked';
+  const meshFrame: MeshFrame | null = frame
+    ? { landmarks: frame.pose.landmarks, segments: frame.grade.segments, t: frame.t }
+    : null;
 
   return (
     <View style={{ flex: 1, backgroundColor: color.void }}>
@@ -337,7 +341,14 @@ export function LiveStage({
       ) : null}
 
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        <MeshView frame={frame ? { landmarks: frame.pose.landmarks, segments: frame.grade.segments, t: frame.t } : null} width={width} height={height} dimmed={paused} />
+        {/* Solids where the Rig draws the body from nothing, the flat overlay
+            where the camera is filming a real one — a filled figure painted
+            over the lifter would hide the very body it is describing. */}
+        {liveMeshSource === 'rig' ? (
+          <MeshView3D frame={meshFrame} width={width} height={height} dimmed={paused} />
+        ) : (
+          <MeshView frame={meshFrame} width={width} height={height} dimmed={paused} />
+        )}
       </View>
 
       {/* The instrument stopped measuring. Whether the link dropped or a
