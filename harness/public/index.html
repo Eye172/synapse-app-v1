@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Synapse - vision harness</title>
+<style>
+  :root { --bg:#06070B; --panel:#0E1219; --line:rgba(255,255,255,0.10); --hi:#EAF0EC; --mid:#99A2AE; --lo:#5A6472; --acid:#C8F03C; --bad:#FF3B5C; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--hi); font:13px/1.55 ui-monospace,Menlo,Consolas,monospace; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:18px; align-items:baseline; flex-wrap:wrap; }
+  h1 { font-size:14px; margin:0; letter-spacing:.16em; text-transform:uppercase; }
+  .sub { color:var(--lo); font-size:11px; letter-spacing:.09em; text-transform:uppercase; }
+  section { padding:18px 20px; border-bottom:1px solid var(--line); }
+  h2 { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--mid); margin:0 0 12px; }
+  .row { display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; }
+  .stack { position:relative; line-height:0; border:1px solid var(--line); background:#000; }
+  .stack video, .stack img { display:block; max-width:100%; }
+  .stack canvas { position:absolute; inset:0; width:100%; height:100%; }
+  .card { background:var(--panel); border:1px solid var(--line); padding:10px; }
+  .cap { font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:var(--lo); margin-top:8px; line-height:1.7; }
+  .ok { color:var(--acid); } .bad { color:var(--bad); }
+  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(290px,1fr)); gap:14px; }
+  button { font:inherit; background:transparent; color:var(--acid); border:1px solid var(--acid); padding:6px 13px; cursor:pointer; }
+  button.off { color:var(--lo); border-color:var(--line); }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  #log { color:var(--lo); font-size:11px; white-space:pre-wrap; margin-top:10px; max-height:160px; overflow:auto; }
+  table { border-collapse:collapse; font-size:11px; width:100%; }
+  td,th { border:1px solid var(--line); padding:3px 8px; text-align:left; white-space:nowrap; }
+  th { color:var(--mid); font-weight:normal; text-transform:uppercase; letter-spacing:.07em; }
+  td.n { text-align:right; color:var(--hi); }
+  .note { color:var(--lo); font-size:11px; max-width:640px; line-height:1.75; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Synapse &middot; vision harness</h1>
+  <span class="sub" id="status">booting</span>
+</header>
+
+<section>
+  <h2>1 &middot; Motion tracking &mdash; real video, real detector, real overlay</h2>
+  <div class="bar">
+    <span class="sub">clip</span>
+    <button data-clip="clips/clip1.mp4" class="clip">1</button>
+    <button data-clip="clips/clip2.mp4" class="clip off">2</button>
+    <button data-clip="clips/clip3.mp4" class="clip off">3</button>
+    <button data-clip="clips/clip4.mp4" class="clip off">4</button>
+    <span style="width:14px"></span>
+    <span class="sub">style</span>
+    <button data-style="solid" class="sty">solid</button>
+    <button data-style="study" class="sty off">study</button>
+    <button data-style="contour" class="sty off">contour</button>
+    <span style="width:14px"></span>
+    <button id="rigidBtn">bone lock: on</button>
+    <button id="predBtn">prediction: on</button>
+  </div>
+  <div class="row">
+    <div class="card">
+      <div class="stack" style="width:420px">
+        <video id="vid" muted loop playsinline crossorigin="anonymous"></video>
+        <canvas id="ov"></canvas>
+      </div>
+      <div class="cap" id="vidcap">&mdash;</div>
+    </div>
+    <div class="card" style="min-width:270px">
+      <h2>Camera solved from the frame</h2>
+      <table id="cam"><tbody></tbody></table>
+      <div class="cap">Three unknowns recovered per frame from the metric skeleton and where it landed in the picture. Residual is how far the reprojection misses, in pixels.</div>
+    </div>
+    <div class="card" style="min-width:250px">
+      <h2>Body measured from the person</h2>
+      <table id="prop"><tbody></tbody></table>
+      <div class="cap">Bone lengths accumulated over frames, then every thickness derived from them. Nothing here is a constant.</div>
+    </div>
+  </div>
+  <p class="note">The detector runs at a fraction of the redraw rate on purpose, the way it would on a phone. Between detections the pose is carried forward by its own velocity, with the filter&rsquo;s lag taken back out &mdash; turn prediction off and the figure visibly drops behind the lifter.</p>
+</section>
+
+<section>
+  <h2>2 &middot; Stills &mdash; different people, different poses, different distances</h2>
+  <div class="bar">
+    <button id="run">Run pose estimation on all references</button>
+    <span class="sub" id="refstyle">overlay: solid</span>
+  </div>
+  <div id="log"></div>
+  <div id="grid" style="margin-top:14px"></div>
+</section>
+
+<script type="module">
+import {
+  buildBody, buildFacets, OVERLAY_STYLES,
+  PoseTracker, fitCamera, cameraProjector, identityViewport,
+  LM,
+} from './geometry.js';
+import { FilesetResolver, PoseLandmarker } from './vision_bundle.mjs';
+
+const statusEl = document.getElementById('status');
+const setStatus = (t) => { statusEl.textContent = t; };
+window.__harness = { ready:false, refs:{}, live:{} };
+
+// ---------------------------------------------------------------------------
+// The only drawing code on this page. Every polygon, colour and line width
+// comes from the app's own buildFacets; this traces them and nothing else.
+// ---------------------------------------------------------------------------
+function paint(ctx, facets, w, h, scrim) {
+  ctx.clearRect(0, 0, w, h);
+  if (scrim > 0) { ctx.fillStyle = `rgba(6,7,11,${scrim})`; ctx.fillRect(0, 0, w, h); }
+  for (const f of facets) {
+    ctx.beginPath();
+    ctx.moveTo(f.pts[0].x, f.pts[0].y);
+    for (let i = 1; i < f.pts.length; i++) ctx.lineTo(f.pts[i].x, f.pts[i].y);
+    ctx.closePath();
+    if (f.fill) { ctx.fillStyle = f.fill; ctx.fill(); }
+    if (f.stroke) { ctx.strokeStyle = f.stroke; ctx.lineWidth = f.strokeWidth; ctx.lineJoin = 'round'; ctx.stroke(); }
+  }
+}
+
+/**
+ * MediaPipe reports both spaces. Image points are normalized, y down.
+ * World points are metres with the origin between the hips, y down and z
+ * growing away from the lens — this app has y up and z toward the viewer,
+ * so both are flipped exactly once, here.
+ */
+function toObservation(res, t, frame) {
+  const img = res.landmarks && res.landmarks[0];
+  const wld = res.worldLandmarks && res.worldLandmarks[0];
+  if (!img) return null;
+  const vis = (p) => (p.visibility === undefined ? 1 : p.visibility);
+  return {
+    t,
+    frame,
+    image: img.map((p) => ({ x:p.x, y:p.y, z:-(p.z||0), v:vis(p) })),
+    world: wld ? wld.map((p) => ({ x:p.x, y:-p.y, z:-(p.z||0), v:vis(p) })) : null,
+  };
+}
+
+const fmt = (v, d=2) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : v.toFixed(d));
+function rows(el, pairs) {
+  el.innerHTML = pairs.map(([k, v]) => `<tr><th>${k}</th><td class="n">${v}</td></tr>`).join('');
+}
+
+// ---------------------------------------------------------------------------
+// panel 1 — video
+// ---------------------------------------------------------------------------
+const vid = document.getElementById('vid');
+const ov = document.getElementById('ov');
+const octx = ov.getContext('2d');
+const vidcap = document.getElementById('vidcap');
+const camTable = document.querySelector('#cam tbody');
+const propTable = document.querySelector('#prop tbody');
+
+let style = 'solid';
+let rigid = true;
+let predict = true;
+let tracker = new PoseTracker({ rigid });
+let landmarker = null;
+let lastCam = null;
+let lastDetectT = -1e9;
+let detectMs = 0;
+let detections = 0;
+let frames = 0;
+let fpsAt = performance.now();
+let fps = 0;
+
+/** The detector is given roughly 15 frames a second, like a phone. */
+const DETECT_PERIOD_MS = 66;
+
+async function loadModel() {
+  setStatus('loading pose model');
+  const fileset = await FilesetResolver.forVisionTasks('./wasm');
+  landmarker = await PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: './pose_landmarker_full.task' },
+    runningMode: 'VIDEO',
+    numPoses: 1,
+  });
+  setStatus('model ready');
+}
+
+function selectClip(src) {
+  tracker = new PoseTracker({ rigid });
+  lastCam = null;
+  lastDetectT = -1e9;
+  detections = 0;
+  vid.src = src;
+  vid.play().catch(() => {});
+}
+
+function tick() {
+  requestAnimationFrame(tick);
+  if (!landmarker || vid.readyState < 2 || vid.videoWidth === 0) return;
+
+  if (ov.width !== vid.videoWidth) { ov.width = vid.videoWidth; ov.height = vid.videoHeight; }
+  const frame = { width: vid.videoWidth, height: vid.videoHeight };
+  const t = vid.currentTime * 1000;
+
+  // feed the detector at its own slower rate, and redraw every frame
+  if (t - lastDetectT >= DETECT_PERIOD_MS) {
+    const t0 = performance.now();
+    let res = null;
+    try { res = landmarker.detectForVideo(vid, t); } catch (e) { /* seeking */ }
+    detectMs = performance.now() - t0;
+    lastDetectT = t;
+    const obs = res ? toObservation(res, t, frame) : null;
+    if (obs) {
+      detections++;
+      tracker.update(obs);
+      const posed = tracker.sample(t);
+      if (posed) {
+        const cam = fitCamera(posed.world, posed.image, frame);
+        if (cam) lastCam = cam;
+      }
+    }
+  }
+
+  frames++;
+  const now = performance.now();
+  if (now - fpsAt > 500) { fps = (frames * 1000) / (now - fpsAt); frames = 0; fpsAt = now; }
+
+  // draw for *now*, not for the last detection — this is where prediction earns its place
+  const pose = tracker.sample(predict ? t : lastDetectT);
+  const cfg = OVERLAY_STYLES[style];
+  if (!pose || !lastCam) { octx.clearRect(0, 0, ov.width, ov.height); return; }
+
+  const model = buildBody(pose.world, pose.proportions);
+  const proj = cameraProjector(lastCam, identityViewport(frame));
+  const facets = buildFacets(model.solids, proj, {}, {
+    fill: cfg.fill, edge: cfg.edge,
+    lineScale: Math.max(0.75, Math.min(frame.width, frame.height) / 420),
+    lightWith: null,
+  });
+  paint(octx, facets, ov.width, ov.height, cfg.scrim);
+
+  const p = pose.proportions;
+  vidcap.innerHTML = `${frame.width}&times;${frame.height} &middot; `
+    + `<span class="ok">${model.solids.length} solids, ${facets.length} faces</span> &middot; `
+    + `detector ${detectMs.toFixed(0)}ms &middot; ${fps.toFixed(0)} fps draw &middot; `
+    + `coverage ${(pose.coverage*100)|0}% &middot; carried ${pose.age.toFixed(0)}ms`;
+
+  rows(camTable, [
+    ['distance', fmt(lastCam.distance, 2) + ' m'],
+    ['off axis x', fmt(lastCam.tx, 3) + ' m'],
+    ['off axis y', fmt(lastCam.ty, 3) + ' m'],
+    ['focal', fmt(lastCam.focal, 0) + ' px'],
+    ['residual', fmt(lastCam.residual, 1) + ' px'],
+    ['points used', String(lastCam.used)],
+  ]);
+  rows(propTable, [
+    ['height', fmt(p.height, 2) + ' m'],
+    ['shoulders', fmt(p.shoulderWidth*100, 1) + ' cm'],
+    ['hips', fmt(p.hipWidth*100, 1) + ' cm'],
+    ['trunk', fmt(p.trunkLength*100, 1) + ' cm'],
+    ['upper arm', fmt(p.upperArm*100, 1) + ' cm'],
+    ['thigh', fmt(p.thigh*100, 1) + ' cm'],
+    ['shin', fmt(p.shin*100, 1) + ' cm'],
+    ['confidence', ((p.confidence*100)|0) + '%'],
+  ]);
+
+  window.__harness.live = {
+    solids: model.solids.length, faces: facets.length,
+    distance: lastCam.distance, residual: lastCam.residual,
+    height: p.height, confidence: p.confidence,
+    coverage: pose.coverage, age: pose.age, detectMs, fps, detections,
+  };
+}
+
+for (const b of document.querySelectorAll('.clip')) {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.clip').forEach((x) => x.classList.add('off'));
+    b.classList.remove('off');
+    selectClip(b.dataset.clip);
+  });
+}
+for (const b of document.querySelectorAll('.sty')) {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.sty').forEach((x) => x.classList.add('off'));
+    b.classList.remove('off');
+    style = b.dataset.style;
+    document.getElementById('refstyle').textContent = 'overlay: ' + style;
+    if (window.__harness.ready) runRefs();
+  });
+}
+document.getElementById('rigidBtn').addEventListener('click', (e) => {
+  rigid = !rigid;
+  e.target.textContent = 'bone lock: ' + (rigid ? 'on' : 'off');
+  e.target.classList.toggle('off', !rigid);
+  tracker = new PoseTracker({ rigid });
+  lastDetectT = -1e9;
+});
+document.getElementById('predBtn').addEventListener('click', (e) => {
+  predict = !predict;
+  e.target.textContent = 'prediction: ' + (predict ? 'on' : 'off');
+  e.target.classList.toggle('off', !predict);
+});
+
+// ---------------------------------------------------------------------------
+// panel 2 — stills
+// ---------------------------------------------------------------------------
+const REFS = ['ref1.jpeg','ref2.jpeg','ref3.jpeg','ref4.jpeg','ref5.jpeg','ref6.jpeg','ref7.jpeg','ref8.jpg'];
+const log = document.getElementById('log');
+const grid = document.getElementById('grid');
+let stillLandmarker = null;
+
+async function runRefs() {
+  if (!stillLandmarker) {
+    log.textContent = 'loading still model...\n';
+    const fileset = await FilesetResolver.forVisionTasks('./wasm');
+    stillLandmarker = await PoseLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: './pose_landmarker_full.task' },
+      runningMode: 'IMAGE', numPoses: 1,
+    });
+  }
+  log.textContent = '';
+  grid.innerHTML = '';
+  let found = 0;
+
+  for (const name of REFS) {
+    const img = new Image();
+    img.src = './refs/' + name;
+    await img.decode();
+    const frame = { width: img.naturalWidth, height: img.naturalHeight };
+
+    const t0 = performance.now();
+    const res = stillLandmarker.detect(img);
+    const ms = Math.round(performance.now() - t0);
+
+    const card = document.createElement('div');
+    card.className = 'card';
+    const stack = document.createElement('div');
+    stack.className = 'stack';
+    stack.appendChild(img);
+    const cv = document.createElement('canvas');
+    cv.width = frame.width; cv.height = frame.height;
+    stack.appendChild(cv);
+    card.appendChild(stack);
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    card.appendChild(cap);
+    grid.appendChild(card);
+
+    const obs = toObservation(res, 0, frame);
+    if (!obs) {
+      cap.innerHTML = `${name} &middot; <span class="bad">no person found</span> &middot; ${ms}ms`;
+      log.textContent += `${name}: no pose\n`;
+      window.__harness.refs[name] = { found:false };
+      continue;
+    }
+    found++;
+
+    // one still is one frame: the tracker measures the body from it and the
+    // camera is solved from it, exactly as in the video path
+    const tr = new PoseTracker();
+    tr.update(obs);
+    const pose = tr.sample(0);
+    const cam = fitCamera(pose.world, pose.image, frame);
+    const model = buildBody(pose.world, pose.proportions);
+    const cfg = OVERLAY_STYLES[style];
+
+    let facets = [];
+    if (cam) {
+      facets = buildFacets(model.solids, cameraProjector(cam, identityViewport(frame)), {}, {
+        fill: cfg.fill, edge: cfg.edge,
+        lineScale: Math.max(1, frame.width / 420), lightWith: null,
+      });
+      paint(cv.getContext('2d'), facets, cv.width, cv.height, cfg.scrim);
+    }
+
+    const vis = obs.image.filter((l) => l.v > 0.15).length;
+    const ys = obs.image.map((l) => l.y);
+    const hPct = ((Math.max(...ys) - Math.min(...ys)) * 100) | 0;
+    cap.innerHTML = `${name} &middot; <span class="ok">pose found</span> &middot; ${vis}/33 pts &middot; `
+      + `subject ${hPct}% of frame &middot; ${cam ? fmt(cam.distance,1)+' m, '+fmt(cam.residual,0)+' px err' : '<span class="bad">no camera</span>'} &middot; `
+      + `${facets.length} faces &middot; ${ms}ms`;
+    log.textContent += `${name}: ${vis}/33 pts, `
+      + `${cam ? 'camera '+fmt(cam.distance,2)+'m residual '+fmt(cam.residual,1)+'px' : 'NO CAMERA'}, `
+      + `height ${fmt(pose.proportions.height,2)}m, ${facets.length} faces, ${ms}ms\n`;
+    window.__harness.refs[name] = {
+      found:true, landmarks:vis, heightPct:hPct, faces:facets.length, ms,
+      distance: cam ? cam.distance : null, residual: cam ? cam.residual : null,
+      bodyHeight: pose.proportions.height,
+      w: frame.width, h: frame.height,
+    };
+  }
+  setStatus(`${found}/${REFS.length} references posed`);
+  log.textContent += `\ndone — ${found}/${REFS.length}\n`;
+  window.__harness.ready = true;
+}
+
+document.getElementById('run').addEventListener('click', runRefs);
+window.__harness.run = runRefs;
+window.__harness.setStyle = (s) => { style = s; };
+
+await loadModel();
+selectClip('clips/clip1.mp4');
+tick();
+setStatus('tracking — press the button for the stills');
+</script>
+</body>
+</html>

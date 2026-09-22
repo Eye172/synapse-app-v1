@@ -2,6 +2,7 @@ import {
   DEFAULT_CAMERA,
   facesAway,
   faceDepth,
+  perspectiveProjector,
   limbBox,
   painterSort,
   project,
@@ -106,6 +107,27 @@ describe('a limb as a solid', () => {
     }
   });
 
+  it('survives a reference axis lying along the limb', () => {
+    // the pelvis is exactly this: a box whose axis is the hip line, handed a
+    // shoulder line as its reference. Both point sideways, and the naive
+    // cross product collapses — the part disappears with nothing thrown
+    const faces = limbBox({ x: -0.2, y: 0, z: 0 }, { x: 0.2, y: 0, z: 0 }, 0.1, 0.1, { x: 0.4, y: 0, z: 0 });
+    expect(faces).toHaveLength(6);
+    for (const f of faces) {
+      expect(Math.hypot(f.normal.x, f.normal.y, f.normal.z)).toBeCloseTo(1, 6);
+    }
+    const cam = perspectiveProjector(DEFAULT_CAMERA, 390, 780);
+    expect(faces.filter((f) => !facesAway(f, cam)).length).toBeGreaterThan(0);
+  });
+
+  it('is not fooled by a reference that was never normalized', () => {
+    // a hint taken as the difference between two landmarks is a body-width
+    // long, so an un-normalized parallel test never fires
+    const long = limbBox({ x: -0.2, y: 0, z: 0 }, { x: 0.2, y: 0, z: 0 }, 0.1, 0.1, { x: 3, y: 0, z: 0 });
+    const unit = limbBox({ x: -0.2, y: 0, z: 0 }, { x: 0.2, y: 0, z: 0 }, 0.1, 0.1, { x: 1, y: 0, z: 0 });
+    expect(long.map((f) => f.normal)).toEqual(unit.map((f) => f.normal));
+  });
+
   it('gives every face a unit normal', () => {
     for (const f of limbBox(from, { x: 0.3, y: -0.8, z: 0.2 }, 0.1, 0.08)) {
       expect(Math.hypot(f.normal.x, f.normal.y, f.normal.z)).toBeCloseTo(1, 6);
@@ -127,7 +149,7 @@ describe('a limb as a solid', () => {
   it('shows exactly half its faces from any one angle', () => {
     for (const yaw of [0, 0.4, -0.9, 1.7, 3.0]) {
       const cam = { ...DEFAULT_CAMERA, yaw };
-      const visible = limbBox(from, to, 0.1, 0.1).filter((f) => !facesAway(f, cam));
+      const visible = limbBox(from, to, 0.1, 0.1).filter((f) => !facesAway(f, perspectiveProjector(cam, 390, 780)));
       expect(visible.length).toBeLessThanOrEqual(3);
       expect(visible.length).toBeGreaterThan(0);
     }
@@ -157,7 +179,7 @@ describe('shading and ordering', () => {
   it('measures depth from the eye, not from the body', () => {
     const nearFace = limbBox({ x: 0, y: 0, z: 1 }, { x: 0, y: -0.5, z: 1 }, 0.1, 0.1)[0]!;
     const farFace = limbBox({ x: 0, y: 0, z: -1 }, { x: 0, y: -0.5, z: -1 }, 0.1, 0.1)[0]!;
-    expect(faceDepth(nearFace, FRONT_ON)).toBeLessThan(faceDepth(farFace, FRONT_ON));
+    expect(faceDepth(nearFace, perspectiveProjector(FRONT_ON, 390, 780))).toBeLessThan(faceDepth(farFace, perspectiveProjector(FRONT_ON, 390, 780)));
   });
 
   it('agrees with itself about which way a quad faces', () => {

@@ -17,7 +17,7 @@ import type { Coach, CoachCue } from '@/src/coach/types';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import type { SafetyAlert } from '@/src/engine/ruleEngine';
 import { SetEngine, type EngineFrame, type SetSummary } from '@/src/engine/setSession';
-import type { ExerciseSpec } from '@/src/engine/types';
+import type { ExerciseSpec, PoseFrame } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import type { SourceBundle } from '@/src/sources/provider';
 import { glow } from '@/src/theme/glow';
@@ -26,6 +26,8 @@ import { AppText } from '@/src/ui/AppText';
 import { CornerBrackets } from '@/src/ui/CornerBrackets';
 import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
 import { MeshView3D } from '@/src/ui/MeshView3D';
+import { BodyOverlay } from '@/src/ui/BodyOverlay';
+import { useBodyTracking } from '@/src/vision/useBodyTracking';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
 
@@ -107,6 +109,15 @@ export function LiveStage({
   const [paused, setPaused] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [recState, setRecState] = useState<'off' | 'recording' | 'stopping'>('off');
+
+  // Stable across renders on purpose: the tracker holds the body it has
+  // measured, and resubscribing would reset it every time a rep ticked.
+  const poseRef = useRef(sources.pose);
+  poseRef.current = sources.pose;
+  const subscribePose = useMemo(
+    () => (cb: (f: PoseFrame) => void) => poseRef.current.onPose(cb),
+    [],
+  );
 
   const [cameraReady, setCameraReady] = useState(false);
   const [cameraFailed, setCameraFailed] = useState(false);
@@ -305,6 +316,16 @@ export function LiveStage({
     ? { landmarks: frame.pose.landmarks, segments: frame.grade.segments, t: frame.t }
     : null;
 
+  // The camera path tracks, measures and places the body itself; the rig
+  // path has no picture to land on and is posed from a chosen angle
+  // instead. Both end up in the same renderer.
+  const tracking = useBodyTracking(subscribePose, {
+    width,
+    height,
+    mirrored: facing === 'front',
+    paused,
+  });
+
   return (
     <View style={{ flex: 1, backgroundColor: color.void }}>
       {/* The real camera sits behind the Mesh whenever it is allowed to —
@@ -341,10 +362,32 @@ export function LiveStage({
       ) : null}
 
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        {/* Solids where the Rig draws the body from nothing, the flat overlay
-            where the camera is filming a real one — a filled figure painted
-            over the lifter would hide the very body it is describing. */}
-        {liveMeshSource === 'rig' ? (
+        {/* Three cases, one renderer.
+
+            With a camera that has been solved, the mannequin is built in
+            metres around the lifter's own measurements and pushed back
+            through the lens that saw them, so it lands on their body —
+            translucent, over a dimmed background, because the point is to
+            compare the model with the person and an opaque figure would
+            hide what it is commenting on.
+
+            With the Rig there is no picture to land on, so the same solids
+            are shown from a chosen angle instead.
+
+            And when the camera is running but the solve has not converged,
+            the flat skeleton is drawn rather than a solid figure planted
+            confidently in the wrong place. */}
+        {tracking.aligned ? (
+          <BodyOverlay
+            pose={tracking.pose}
+            camera={tracking.camera}
+            viewport={tracking.viewport ?? undefined}
+            severity={frame?.grade.segments}
+            width={width}
+            height={height}
+            dimmed={paused}
+          />
+        ) : liveMeshSource === 'rig' ? (
           <MeshView3D frame={meshFrame} width={width} height={height} dimmed={paused} />
         ) : (
           <MeshView frame={meshFrame} width={width} height={height} dimmed={paused} />

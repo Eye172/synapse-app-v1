@@ -45,11 +45,43 @@ export interface Landmark {
   est?: boolean;
 }
 
+/**
+ * One landmark in metres, with the origin between the hips, x right, y up
+ * and z toward the camera.
+ *
+ * This is a different thing from a `Landmark` and the difference matters:
+ * a Landmark says where a joint appeared in the picture and carries no
+ * scale at all, while this says how big the body actually is. Only the
+ * second can have a mannequin built around it, and only the first can say
+ * where to put it — which is why a camera pose carries both.
+ */
+export interface WorldPoint {
+  x: number;
+  y: number;
+  z: number;
+  /** visibility/confidence 0..1 */
+  v: number;
+}
+
+export interface FrameSize {
+  width: number;
+  height: number;
+}
+
 export interface PoseFrame {
   /** arrival time, ms */
   t: number;
   landmarks: Landmark[];
   source: 'sim' | 'camera' | 'rig';
+  /**
+   * The same body in metres, when the source can measure it. The Rig
+   * cannot — it knows five angles, not a wearer's height — so this is
+   * present for camera poses and absent otherwise, and the overlay picks
+   * its projection accordingly.
+   */
+  world?: WorldPoint[];
+  /** pixel size of the frame these came from, for the camera solve */
+  frame?: FrameSize;
 }
 
 // ---------- sensor (the Rig) ----------

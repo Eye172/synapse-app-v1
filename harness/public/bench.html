@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Synapse - bench</title>
+<style>
+  body { margin:0; background:#06070B; color:#EAF0EC; font:13px/1.6 ui-monospace,Consolas,monospace; padding:20px; }
+  pre { white-space:pre-wrap; color:#99A2AE; }
+  h1 { font-size:13px; letter-spacing:.16em; text-transform:uppercase; margin:0 0 14px; }
+</style>
+</head>
+<body>
+<h1>Synapse &middot; measurement bench</h1>
+<pre id="out">idle — driven from the console</pre>
+<script type="module">
+/**
+ * A bare page whose only job is to measure.
+ *
+ * The harness page runs its own detector and its own render loop, which is
+ * what it is for. Measurement gets a page of its own so that a number is
+ * never lost to something unrelated running beside it.
+ *
+ * What is measured is deliberately not how well the figure covers a
+ * person-shaped blob. That number can always be improved by drawing a
+ * fatter figure, which tunes the mannequin to whatever footage is to hand
+ * rather than to anatomy. What is measured instead is where the model's
+ * joints land against where the detector says the person's joints are —
+ * a quantity that has a right answer, is independent of build and
+ * clothing, and cannot be gamed by inflating anything.
+ */
+import * as G from './geometry.js';
+import { FilesetResolver, PoseLandmarker } from './vision_bundle.mjs';
+
+const out = document.getElementById('out');
+const log = (s) => { out.textContent += '\n' + s; };
+const vis = (p) => (p.visibility === undefined ? 1 : p.visibility);
+
+/** Detectors are expensive; there is exactly one of each running mode. */
+const cache = {};
+async function landmarker(mode) {
+  if (cache[mode]) return cache[mode];
+  const fileset = await FilesetResolver.forVisionTasks('./wasm');
+  cache[mode] = await PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: './pose_landmarker_full.task' },
+    runningMode: mode,
+    numPoses: 1,
+  });
+  return cache[mode];
+}
+
+/** A phone hands the detector a preview frame, not a 12-megapixel photo. */
+const MAX_SIDE = 1024;
+function fit(img) {
+  const k = Math.min(1, MAX_SIDE / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.round(img.naturalWidth * k);
+  const h = Math.round(img.naturalHeight * k);
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  cv.getContext('2d').drawImage(img, 0, 0, w, h);
+  return { canvas: cv, frame: { width: w, height: h } };
+}
+
+function observation(res, t, frame) {
+  const im = res.landmarks && res.landmarks[0];
+  const wl = res.worldLandmarks && res.worldLandmarks[0];
+  if (!im || !wl) return null;
+  return {
+    t, frame,
+    image: im.map((p) => ({ x: p.x, y: p.y, z: -(p.z || 0), v: vis(p) })),
+    world: wl.map((p) => ({ x: p.x, y: -p.y, z: -(p.z || 0), v: vis(p) })),
+  };
+}
+
+/** The joints a body is judged by; fingers and face points are noise here. */
+const JOINTS = { 11:'Lsho', 12:'Rsho', 13:'Lelb', 14:'Relb', 15:'Lwri', 16:'Rwri',
+                 23:'Lhip', 24:'Rhip', 25:'Lkne', 26:'Rkne', 27:'Lank', 28:'Rank' };
+
+/**
+ * How far the placed mannequin's joints sit from the detected ones.
+ *
+ * Reported both in pixels and as a share of how tall the subject is in
+ * frame, because the pixel figure alone means nothing: ten pixels is
+ * nothing on someone filling the shot and a great deal on someone across
+ * the room.
+ */
+function jointError(pose, image, cam, frame) {
+  const proj = G.cameraProjector(cam, G.identityViewport(frame));
+  const per = {};
+  let sum = 0, n = 0;
+  for (const idx of Object.keys(JOINTS)) {
+    const i = Number(idx);
+    if (pose.world[i].v < 0.5) continue;
+    const p = proj.to2D(pose.world[i]);
+    if (!p.visible) continue;
+    const d = Math.hypot(p.x - image[i].x * frame.width, p.y - image[i].y * frame.height);
+    per[JOINTS[i]] = +d.toFixed(1);
+    sum += d; n++;
+  }
+  const ys = image.map((p) => p.y);
+  const subjectPx = (Math.max(...ys) - Math.min(...ys)) * frame.height;
+  return {
+    px: n ? +(sum / n).toFixed(1) : null,
+    pctOfSubject: n && subjectPx ? +((sum / n / subjectPx) * 100).toFixed(2) : null,
+    subjectPx: Math.round(subjectPx),
+    per,
+  };
+}
+
+/** Run the whole pipeline over one still. */
+async function still(name) {
+  const lm = await landmarker('IMAGE');
+  const img = new Image();
+  img.src = './refs/' + name;
+  await img.decode();
+  const { canvas, frame } = fit(img);
+  const t0 = performance.now();
+  const res = lm.detect(canvas);
+  const ms = Math.round(performance.now() - t0);
+  const obs = observation(res, 0, frame);
+  if (!obs) { log(name + ': no pose'); return null; }
+  const tr = new G.PoseTracker({ rigid: true });
+  tr.update(obs);
+  const pose = tr.sample(0);
+  const cam = G.fitCamera(pose.world, pose.image, frame);
+  if (!cam) { log(name + ': no camera'); return null; }
+  const err = jointError(pose, obs.image, cam, frame);
+  const p = pose.proportions;
+  log(`${name}: ${err.px} px (${err.pctOfSubject}% of subject), camera ${cam.distance.toFixed(2)} m, `
+    + `height ${p.height.toFixed(2)} m, ${ms} ms`);
+  return { name, frame, cam, pose, image: obs.image, err, ms, img, canvas };
+}
+
+/** Run the whole pipeline across a clip, the way a set would. */
+async function clip(src, frames = 24, skip = 8) {
+  const lm = await landmarker('VIDEO');
+  const v = document.createElement('video');
+  v.src = src; v.muted = true;
+  await new Promise((r) => { v.onloadeddata = () => r(); });
+  const frame = { width: v.videoWidth, height: v.videoHeight };
+  const seek = (t) => new Promise((r) => { v.onseeked = () => r(); v.currentTime = t; });
+  const tr = new G.PoseTracker({ rigid: true });
+  const dur = Math.min(v.duration, 6);
+  const errs = [];
+  let detected = 0;
+  let last = null;
+  for (let i = 0; i < frames; i++) {
+    await seek((i / frames) * dur);
+    let res = null;
+    try { res = lm.detectForVideo(v, (window.__stamp = (window.__stamp || 0) + 1)); } catch (e) { /* seeking */ }
+    if (!res) continue;
+    const obs = observation(res, (i / frames) * dur * 1000, frame);
+    if (!obs) continue;
+    detected++;
+    tr.update(obs);
+    if (i < skip) continue;
+    const pose = tr.sample((i / frames) * dur * 1000);
+    const cam = G.fitCamera(pose.world, pose.image, frame);
+    if (!cam) continue;
+    errs.push(jointError(pose, obs.image, cam, frame));
+    last = { pose, cam, frame, video: v, image: obs.image };
+  }
+  const mean = (k) => +(errs.reduce((a, b) => a + b[k], 0) / errs.length).toFixed(2);
+  const p = last ? last.pose.proportions : null;
+  log(`${src}: ${detected}/${frames} detected, ${mean('px')} px (${mean('pctOfSubject')}% of subject), `
+    + (p ? `height ${p.height.toFixed(2)} m, confidence ${(p.confidence * 100) | 0}%` : ''));
+  return { src, frames, detected, meanPx: mean('px'), meanPct: mean('pctOfSubject'), errs, last };
+}
+
+Object.assign(window, { G, still, clip, jointError, fit, observation, landmarker, log, JOINTS });
+out.textContent = 'ready';
+</script>
+</body>
+</html>

@@ -100,6 +100,12 @@ function buildPayload(cycle, faulted) {
   return out;
 }
 
+// Exported so other tools can drive the real generator instead of writing a
+// second one: a harness with its own squat is not testing this one.
+module.exports = { buildPayload, poseAt, ORDER };
+
+if (require.main !== module) return;
+
 const socket = dgram.createSocket('udp4');
 function send(payload) {
   const buf = Buffer.from(JSON.stringify(payload));

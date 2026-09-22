@@ -37,10 +37,19 @@ export class CameraPoseSource implements PoseSource {
     }
     this.setStatus('searching');
     this.detector
-      .start((landmarks, timestampMs) => {
+      .start((obs) => {
         this.lastFrameAt = Date.now();
         if (this.status !== 'active') this.setStatus('active');
-        this.poses.emit({ t: timestampMs || Date.now(), source: 'camera', landmarks });
+        // both spaces travel together: the image points say where the body
+        // is on screen, the world points say how big it is, and the overlay
+        // needs both to land a mannequin on a person
+        this.poses.emit({
+          t: obs.t || Date.now(),
+          source: 'camera',
+          landmarks: obs.image,
+          world: obs.world ?? undefined,
+          frame: obs.frame,
+        });
       })
       .catch((e) => {
         console.warn('[synapse] pose detector failed to start', e);
