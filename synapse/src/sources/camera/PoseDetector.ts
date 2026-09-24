@@ -22,7 +22,13 @@ export interface PoseDetector {
   readonly name: string;
   /** true when this detector reports metric world points, not just pixels */
   readonly metric: boolean;
-  start(onPose: (observation: PoseObservation) => void): Promise<void>;
+  /**
+   * Begin delivering observations. `onFailure` fires if the detector becomes
+   * unable to produce any — a model that would not load, a camera that cannot
+   * stream frames — so the source can report it instead of searching forever
+   * for a body nothing is looking for.
+   */
+  start(onPose: (observation: PoseObservation) => void, onFailure?: (reason: string) => void): Promise<void>;
   stop(): Promise<void>;
 }
 

@@ -26,17 +26,28 @@ export class CameraPoseSource implements PoseSource {
   }
 
   start(): void {
+    // Idempotent on purpose. Position-lock starts this source and the live set
+    // then runs on the same one; a second start would attach a second
+    // detector and a second watchdog, and every frame would arrive twice.
+    if (this.detector !== null) return;
     if (!this.opts.hasCameraPermission) {
       this.setStatus('unavailable');
       return;
     }
-    this.detector = loadPoseDetector();
-    if (this.detector === null) {
+    const detector = loadPoseDetector();
+    if (detector === null) {
       this.setStatus('unavailable');
       return;
     }
+    this.detector = detector;
     this.setStatus('searching');
-    this.detector
+    const onFailure = (reason: string) => {
+      // the camera is running but nothing is being measured behind it — say
+      // so, rather than searching forever for a body nobody is looking for
+      console.warn('[synapse] pose detector unavailable:', reason);
+      this.setStatus('unavailable');
+    };
+    detector
       .start((obs) => {
         this.lastFrameAt = Date.now();
         if (this.status !== 'active') this.setStatus('active');
@@ -50,12 +61,13 @@ export class CameraPoseSource implements PoseSource {
           world: obs.world ?? undefined,
           frame: obs.frame,
         });
-      })
+      }, onFailure)
       .catch((e) => {
         console.warn('[synapse] pose detector failed to start', e);
         this.setStatus('unavailable');
       });
     // body lost / detector stalled → searching (auto-recovers on next frame)
+    if (this.watchdog) clearInterval(this.watchdog);
     this.watchdog = setInterval(() => {
       if (this.status === 'active' && Date.now() - this.lastFrameAt > 1200) {
         this.setStatus('searching');
@@ -81,6 +93,7 @@ export class CameraPoseSource implements PoseSource {
     return this.statuses.on(cb);
   }
   private setStatus(s: SourceStatus): void {
+    if (this.status === s) return;
     this.status = s;
     this.statuses.emit(s);
   }

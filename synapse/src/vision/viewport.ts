@@ -87,3 +87,28 @@ export function containViewport(frame: FrameSize, screen: FrameSize, mirrored = 
 export function identityViewport(frame: FrameSize, mirrored = false): Viewport {
   return make(frame, frame, 1, mirrored);
 }
+
+/**
+ * Image-space landmarks re-expressed in the screen's own normalized space.
+ *
+ * A detector reports points as fractions of the camera frame, unmirrored.
+ * Everything drawn flat — the position-lock ghost, the fallback skeleton — is
+ * drawn as fractions of the screen, over a preview that is cropped to fill it
+ * and, from the front camera, mirrored. Drawing the first as if it were the
+ * second puts the skeleton beside the wearer and moving the wrong way: step
+ * right and it steps left. This is the one conversion between them.
+ *
+ * Only position changes. Joint names are left alone: a left knee is still the
+ * wearer's left knee even though, mirrored, it appears on the right.
+ */
+export function landmarksToScreen<L extends { x: number; y: number }>(
+  landmarks: readonly L[],
+  viewport: Viewport,
+): L[] {
+  const { frame, screen } = viewport;
+  if (!(screen.width > 0) || !(screen.height > 0)) return landmarks.slice();
+  return landmarks.map((l) => {
+    const p = viewport.toScreen(l.x * frame.width, l.y * frame.height);
+    return { ...l, x: p.x / screen.width, y: p.y / screen.height };
+  });
+}

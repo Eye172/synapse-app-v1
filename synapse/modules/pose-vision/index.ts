@@ -29,13 +29,29 @@ export interface PoseVisionEvent {
   latencyMs: number;
 }
 
+/**
+ * The whole state of the view, re-sent on every change. The camera and the
+ * detector come up independently — a preview can run on a phone whose GPU
+ * refused the model and whose CPU is still loading it — so they are reported
+ * separately rather than folded into one "ready".
+ */
 export interface PoseVisionStatusEvent {
-  /** 'ready' once the landmarker is live; 'no-detector' when it could not be built */
-  state: 'ready' | 'no-detector';
+  camera: 'starting' | 'ready' | 'failed';
+  detector: 'loading' | 'ready' | 'unavailable';
+  /** the delegate in use when ready ('GPU' | 'CPU'); the reason when unavailable */
+  detail: string;
+  /**
+   * False when this camera could not bind a recorder alongside the preview
+   * and the detector. Detection is kept and recording given up, so a set is
+   * never lost to an optional clip.
+   */
+  canRecord: boolean;
 }
 
 export interface PoseVisionErrorEvent {
   message: string;
+  /** false for a problem that did not stop the camera (a failed frame, a failed clip) */
+  fatal?: boolean;
 }
 
 export interface PoseVisionRecordingEvent {

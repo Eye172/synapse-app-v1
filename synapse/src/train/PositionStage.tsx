@@ -7,11 +7,13 @@ import { speakCue } from '@/src/coach/speech';
 import type { ExerciseSpec, Landmark } from '@/src/engine/types';
 import type { SourceBundle } from '@/src/sources/provider';
 import { ghostPose } from '@/src/sources/sim/kinematics';
+import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
 import { CornerBrackets, bracketTint } from '@/src/ui/CornerBrackets';
 import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
 import { ScanlineSweep } from '@/src/ui/ScanlineSweep';
+import { coverViewport, landmarksToScreen } from '@/src/vision/viewport';
 
 import { alignmentScore } from './alignment';
 
@@ -34,6 +36,11 @@ export function PositionStage({
   onLocked: () => void;
 }) {
   const { width, height } = useWindowDimensions();
+  const facing = useSettingsStore((s) => s.cameraFacing);
+  // read through a ref so a pose arriving mid-effect uses the current screen,
+  // not the one the subscription happened to be made under
+  const screenRef = useRef({ width, height, mirrored: facing === 'front' });
+  screenRef.current = { width, height, mirrored: facing === 'front' };
   const ghost = useMemo(() => ghostPose(ex), [ex]);
   const [frame, setFrame] = useState<MeshFrame | null>(null);
   const [score, setScore] = useState(0);
@@ -76,9 +83,20 @@ export function PositionStage({
     };
 
     if (sources?.poseIsReal) {
-      // real camera pose: align the actual body against the ghost
+      // a real body — the Rig's, or the camera's — aligned against the ghost
       unsub = sources.pose.onPose((f) => {
-        if (!lockedRef.current) evaluate(f.landmarks, f.t);
+        if (lockedRef.current) return;
+        // The ghost is drawn in the screen's space. A camera pose is in the
+        // frame's, unmirrored, under a preview that is cropped and — from the
+        // front camera — mirrored; compared as-is, a wearer standing exactly
+        // on the ghost would be scored as missing it, and stepping toward it
+        // would move them away.
+        const { width: w, height: h, mirrored } = screenRef.current;
+        const live =
+          f.source === 'camera' && f.frame
+            ? landmarksToScreen(f.landmarks, coverViewport(f.frame, { width: w, height: h }, mirrored))
+            : f.landmarks;
+        evaluate(live, f.t);
       });
       sources.pose.start();
     } else {

@@ -1,7 +1,7 @@
 import { useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View } from 'react-native';
+import { View, useWindowDimensions } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -19,6 +19,7 @@ import { PositionStage } from '@/src/train/PositionStage';
 import { EphemeralClip } from '@/src/train/recording';
 import { ReportStage } from '@/src/train/ReportStage';
 import { ReviewStage } from '@/src/train/ReviewStage';
+import { SetCamera, type SetCameraHandle, type SetCameraState } from '@/src/train/SetCamera';
 import { SelectStage } from '@/src/train/SelectStage';
 import { TutorialStage } from '@/src/train/TutorialStage';
 import { AppText } from '@/src/ui/AppText';
@@ -28,6 +29,8 @@ import { PressableScale } from '@/src/ui/PressableScale';
 import { ScanlineSweep } from '@/src/ui/ScanlineSweep';
 
 type Stage = 'select' | 'loading' | 'tutorial' | 'arm' | 'noSource' | 'position' | 'live' | 'review' | 'report';
+
+const NO_CAMERA: SetCameraState = { ready: false, canRecord: false, measures: false };
 
 /**
  * The Training flow (§2.5) — a full-screen modal state machine:
@@ -45,6 +48,15 @@ export default function TrainScreen() {
   const [stage, setStage] = useState<Stage>(initialEx ? 'loading' : 'select');
   const [config, setConfig] = useState<TrainConfig>({ record: false, durationSec: 30 });
   const [camPerm] = useCameraPermissions();
+  const camGranted = camPerm?.granted === true;
+  const { width, height } = useWindowDimensions();
+
+  // The set's camera belongs to the flow, not to a stage: it has to be running
+  // while position-lock looks for a body, and it must not close and reopen
+  // when the set begins.
+  const cameraRef = useRef<SetCameraHandle | null>(null);
+  const [cameraState, setCameraState] = useState<SetCameraState>(NO_CAMERA);
+  const [cameraFailed, setCameraFailed] = useState(false);
   const [result, setResult] = useState<LiveResult | null>(null);
   const [aiKey, setAiKeyState] = useState<string | null>(null);
 
@@ -74,7 +86,9 @@ export default function TrainScreen() {
 
   const beginPositioning = () => {
     sourcesRef.current?.dispose();
-    const sources = createSetSources(ex!, { camGranted: camPerm?.granted === true });
+    setCameraState(NO_CAMERA);
+    setCameraFailed(false);
+    const sources = createSetSources(ex!, { camGranted });
     if (sources === null) {
       // nothing can measure this set — say so rather than inventing one
       setStage('noSource');
@@ -99,6 +113,12 @@ export default function TrainScreen() {
   };
 
   const showClose = stage !== 'live' && stage !== 'position';
+
+  const cameraShown = (stage === 'position' || stage === 'live') && camGranted && !cameraFailed;
+  // only a set measured from the picture needs the detector; with the Rig
+  // drawing the body the camera is there to be looked at, and running the
+  // model behind it would cost battery for frames nobody uses
+  const detecting = sourcesRef.current?.poseOrigin === 'camera';
 
   const summary: SetSummary | null = result?.summary ?? null;
   const markers: FaultMarker[] = result?.faultMarkers ?? [];
@@ -163,7 +183,10 @@ export default function TrainScreen() {
             config={config}
             sources={sourcesRef.current}
             clip={clipRef.current}
-            camGranted={camPerm?.granted === true}
+            camera={cameraRef}
+            cameraLive={cameraShown}
+            cameraReady={cameraState.ready}
+            canRecord={cameraState.canRecord}
             aiKey={aiKey}
             onDone={(r) => {
               setResult(r);
@@ -186,7 +209,7 @@ export default function TrainScreen() {
         return null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stage, ex, config, camPerm?.granted, summary]);
+  }, [stage, ex, config, camGranted, summary, cameraShown, cameraState]);
 
   return (
     <View style={{ flex: 1 }}>
@@ -214,13 +237,36 @@ export default function TrainScreen() {
             </PressableScale>
           </View>
         ) : null}
-        {/* Entering only. An exit animation keeps the outgoing stage mounted
-            until it finishes, and these stages own a camera, a recording and
-            a running engine — two of them alive at once is not a transition,
-            it is a leak. */}
-        <Animated.View key={stage} entering={FadeIn.duration(220)} style={{ flex: 1 }}>
-          {stageView}
-        </Animated.View>
+        <View style={{ flex: 1 }}>
+          {/* Outside the keyed stage on purpose, so it survives the handover
+              from position-lock to the set. Sized to the window like the
+              overlays drawn over it, from the same origin, so a figure placed
+              through the camera's viewport lands where the preview shows the
+              body. */}
+          {cameraShown ? (
+            <SetCamera
+              ref={cameraRef}
+              width={width}
+              height={height}
+              detecting={detecting}
+              onState={(next) =>
+                setCameraState((prev) =>
+                  prev.ready === next.ready && prev.canRecord === next.canRecord && prev.measures === next.measures
+                    ? prev
+                    : next,
+                )
+              }
+              onFailed={() => setCameraFailed(true)}
+            />
+          ) : null}
+          {/* Entering only. An exit animation keeps the outgoing stage mounted
+              until it finishes, and these stages own a recording and a running
+              engine — two of them alive at once is not a transition, it is a
+              leak. */}
+          <Animated.View key={stage} entering={FadeIn.duration(220)} style={{ flex: 1 }}>
+            {stageView}
+          </Animated.View>
+        </View>
       </View>
     </View>
   );

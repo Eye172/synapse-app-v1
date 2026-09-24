@@ -1,4 +1,4 @@
-import { containViewport, coverViewport, identityViewport } from './viewport';
+import { containViewport, coverViewport, identityViewport, landmarksToScreen } from './viewport';
 
 /**
  * Getting this wrong does not look like a bug. The figure simply sits a
@@ -92,5 +92,56 @@ describe('degenerate inputs', () => {
   it('maps a frame onto itself one for one', () => {
     const vp = identityViewport(SENSOR);
     expect(vp.toScreen(321, 123)).toEqual({ x: 321, y: 123 });
+  });
+});
+
+describe('landmarksToScreen', () => {
+  const frame = { width: 720, height: 1280 };
+  const screen = { width: 1080, height: 2400 };
+
+  it('lands a point where the preview shows it, crop included', () => {
+    const vp = coverViewport(frame, screen, false);
+    const [p] = landmarksToScreen([{ x: 0.5, y: 0.5, v: 1 }], vp);
+    // the centre of the frame is the centre of the screen under a centred crop
+    expect(p!.x).toBeCloseTo(0.5);
+    expect(p!.y).toBeCloseTo(0.5);
+
+    // the screen is narrower than the frame, so cover scales to the height
+    // and crops the sides: the frame's left edge falls off-screen
+    const [edge] = landmarksToScreen([{ x: 0, y: 0.5, v: 1 }], vp);
+    expect(edge!.x).toBeLessThan(0);
+  });
+
+  /**
+   * The front camera's preview is a mirror and its frames are not. Without
+   * this, a wearer who steps to their right watches the skeleton step left.
+   */
+  it('follows the mirrored preview, so moving right moves the figure right', () => {
+    const vp = coverViewport(frame, screen, true);
+    const [left, right] = landmarksToScreen(
+      [
+        { x: 0.3, y: 0.5, v: 1 },
+        { x: 0.7, y: 0.5, v: 1 },
+      ],
+      vp,
+    );
+    expect(left!.x).toBeGreaterThan(right!.x);
+  });
+
+  it('keeps everything but position, joint names and flags included', () => {
+    const vp = coverViewport(frame, screen, true);
+    const [p] = landmarksToScreen([{ x: 0.4, y: 0.6, z: -0.2, v: 0.7, est: true }], vp);
+    expect(p!.z).toBe(-0.2);
+    expect(p!.v).toBe(0.7);
+    expect(p!.est).toBe(true);
+  });
+
+  it('round-trips through the viewport exactly', () => {
+    const vp = coverViewport(frame, screen, true);
+    const src = { x: 0.37, y: 0.81, v: 1 };
+    const [p] = landmarksToScreen([src], vp);
+    const back = vp.toFrame(p!.x * screen.width, p!.y * screen.height);
+    expect(back.x / frame.width).toBeCloseTo(src.x);
+    expect(back.y / frame.height).toBeCloseTo(src.y);
   });
 });

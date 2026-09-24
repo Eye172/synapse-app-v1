@@ -78,6 +78,20 @@ export async function nextClipTarget(now: number = Date.now()): Promise<{ uri: s
   }
 }
 
+/**
+ * Delete a clip nobody is going to see — one that finished after the screen
+ * that asked for it was gone, or that took too long to finalize to be worth
+ * waiting for. Best-effort: the stale-clip sweep on the next launch is the
+ * backstop, so a failure here can leave a file for minutes, never for good.
+ */
+export async function discardClipFile(uri: string, ops: FileOps = loadDefaultFileOps()): Promise<void> {
+  try {
+    await ops.delete(uri);
+  } catch {
+    // swept on next launch by purgeStaleClips
+  }
+}
+
 export class EphemeralClip {
   private uri: string | null = null;
   private deleted = false;

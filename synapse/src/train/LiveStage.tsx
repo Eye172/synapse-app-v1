@@ -1,4 +1,3 @@
-import { CameraView } from 'expo-camera';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AppState, View, useWindowDimensions } from 'react-native';
 import Animated, {
@@ -14,32 +13,28 @@ import { LLMCoach } from '@/src/coach/LLMCoach';
 import { RuleCoach } from '@/src/coach/RuleCoach';
 import { speakCue, stopSpeech } from '@/src/coach/speech';
 import type { Coach, CoachCue } from '@/src/coach/types';
-import { useSettingsStore } from '@/src/store/settingsStore';
 import type { SafetyAlert } from '@/src/engine/ruleEngine';
 import { SetEngine, type EngineFrame, type SetSummary } from '@/src/engine/setSession';
 import type { ExerciseSpec, PoseFrame } from '@/src/engine/types';
-import { useConnectionStore } from '@/src/store/connectionStore';
 import type { SourceBundle } from '@/src/sources/provider';
+import { useConnectionStore } from '@/src/store/connectionStore';
+import { useSettingsStore } from '@/src/store/settingsStore';
 import { glow } from '@/src/theme/glow';
 import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
+import { BodyOverlay } from '@/src/ui/BodyOverlay';
 import { CornerBrackets } from '@/src/ui/CornerBrackets';
 import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
 import { MeshView3D } from '@/src/ui/MeshView3D';
-import { BodyOverlay } from '@/src/ui/BodyOverlay';
-import { useBodyTracking } from '@/src/vision/useBodyTracking';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
-
-import { getPoseVisionView, type PoseVisionViewRef } from '@/modules/pose-vision';
-import { publishNativePose, resetPoseVision } from '@/src/sources/camera/poseVisionBridge';
+import { useBodyTracking } from '@/src/vision/useBodyTracking';
+import { coverViewport, landmarksToScreen } from '@/src/vision/viewport';
 
 import type { TrainConfig } from './ArmStage';
-import { nextClipTarget, type EphemeralClip } from './recording';
+import type { EphemeralClip } from './recording';
+import type { SetCameraHandle } from './SetCamera';
 import { useKeepAwakeSafe } from './useKeepAwakeSafe';
-
-/** How long to wait for the muxer to finalize a clip before giving up. */
-const FINALIZE_TIMEOUT_MS = 4000;
 
 export interface FaultMarker {
   tSec: number;
@@ -54,9 +49,13 @@ export interface LiveResult {
 }
 
 /**
- * LIVE_SET (§2.5) — the cockpit. Camera (when recording) or the void behind,
- * the Mesh over the body, the left data rail, the mono status strip, the
- * fault chip, the glass coaching pill, STOP and PAUSE.
+ * LIVE_SET (§2.5) — the cockpit. The flow's camera behind it (or the void when
+ * there is none), the Mesh over the body, the left data rail, the mono status
+ * strip, the fault chip, the glass coaching pill, STOP and PAUSE.
+ *
+ * The camera itself is not owned here: it is started for position-lock and
+ * outlives the handover to this screen. This screen decides when to record
+ * and owns the clip once it exists.
  * Must read like materials/deliverables/synapse-hud-mockup.html.
  */
 /** What the HUD calls whatever is currently drawing the body. */
@@ -93,7 +92,10 @@ export function LiveStage({
   config,
   sources,
   clip,
-  camGranted,
+  camera,
+  cameraLive,
+  cameraReady,
+  canRecord,
   aiKey,
   onDone,
 }: {
@@ -101,7 +103,14 @@ export function LiveStage({
   config: TrainConfig;
   sources: SourceBundle;
   clip: EphemeralClip;
-  camGranted: boolean;
+  /** the set's camera, owned by the flow so it survives from position-lock */
+  camera: React.RefObject<SetCameraHandle | null>;
+  /** the camera is running behind this screen */
+  cameraLive: boolean;
+  /** its preview is up */
+  cameraReady: boolean;
+  /** it can record alongside everything else it is running */
+  canRecord: boolean;
   /** optional Anthropic key — present ⇒ LLMCoach, absent ⇒ RuleCoach + OFFLINE chip */
   aiKey: string | null;
   onDone: (r: LiveResult) => void;
@@ -125,35 +134,16 @@ export function LiveStage({
     [],
   );
 
-  const [cameraReady, setCameraReady] = useState(false);
-  const [cameraFailed, setCameraFailed] = useState(false);
   const facing = useSettingsStore((s) => s.cameraFacing);
-  const cameraRef = useRef<CameraView | null>(null);
-  const poseViewRef = useRef<PoseVisionViewRef | null>(null);
-  const pendingClipRef = useRef<{ uri: string; path: string } | null>(null);
-  const recordingSettledRef = useRef<(() => void) | null>(null);
-
-  /**
-   * The camera that also measures, when this build has it.
-   *
-   * Resolved once: it is a native component, and asking for it on a build
-   * without the module throws. When it is absent the screen falls back to the
-   * plain preview — the lifter still sees themselves and the Rig path is
-   * untouched, there is simply nothing placing a body on them.
-   */
-  const PoseVisionView = useMemo(() => getPoseVisionView(), []);
-  const tracksFromCamera = PoseVisionView !== null;
+  const recordingStartedRef = useRef(false);
   const engineRef = useRef<SetEngine | null>(null);
   const markersRef = useRef<FaultMarker[]>([]);
   const lastMarkerAt = useRef<Record<string, number>>({});
   const startedAtRef = useRef(0);
   const doneRef = useRef(false);
-  const recordingUriRef = useRef<string | null>(null);
-  const recordPromiseRef = useRef<Promise<void> | null>(null);
 
-  const recording = config.record && camGranted;
-  /** show the live view whenever we're allowed to and the hardware works */
-  const cameraLive = camGranted && !cameraFailed;
+  /** the wearer asked for a clip, and there is a camera to take one with */
+  const recordRequested = config.record && cameraLive;
 
   // ---- engine ----
   useEffect(() => {
@@ -163,8 +153,6 @@ export function LiveStage({
     startedAtRef.current = Date.now();
 
     sources.startSet();
-    // nothing from a previous set may count as a live pose on this one
-    resetPoseVision();
 
     // every cue schedules a dismissal; they are tracked so none of them can
     // fire into an unmounted screen
@@ -233,86 +221,34 @@ export function LiveStage({
       if (paused) return;
       const e = Math.floor((Date.now() - startedAtRef.current) / 1000);
       setElapsed(e);
-      if (recording && e >= config.durationSec) finish();
+      if (recordRequested && e >= config.durationSec) finish();
     }, 250);
     return () => clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused, recording, config.durationSec]);
+  }, [paused, recordRequested, config.durationSec]);
 
   // ---- recording lifecycle ----
-  const startRecording = async () => {
-    if (!recording || recState !== 'off') return;
-
-    // The native camera writes to a path this side chooses, so the clip lands
-    // in the directory the stale-clip sweep already clears and no recording
-    // can outlive the session by taking a path nothing knows about.
-    if (tracksFromCamera) {
-      const target = await nextClipTarget();
-      if (target === null) return;
-      pendingClipRef.current = target;
-      setRecState('recording');
-      try {
-        await poseViewRef.current?.startRecording(target.path);
-      } catch (e) {
-        console.warn('[synapse] recording could not start', e);
-        pendingClipRef.current = null;
-        setRecState('off');
-      }
-      return;
-    }
-
-    if (cameraRef.current === null) return;
-    try {
-      setRecState('recording');
-      const p = cameraRef.current
-        .recordAsync({ maxDuration: config.durationSec })
-        .then((res) => {
-          if (res?.uri) {
-            recordingUriRef.current = res.uri;
-            clip.attach(res.uri);
-          }
-        })
-        .catch((e) => {
-          console.warn('[synapse] recording failed', e);
-          recordingUriRef.current = null;
-        });
-      recordPromiseRef.current = p.then(() => {});
-    } catch (e) {
-      console.warn('[synapse] recording could not start', e);
-      setRecState('off');
-    }
-  };
+  // The camera records and finalizes; this screen decides when, and owns the
+  // clip once it exists. Starting waits for the preview, which may already be
+  // up — the camera has been running since position-lock.
+  useEffect(() => {
+    if (!recordRequested || !canRecord || !cameraReady || recordingStartedRef.current) return;
+    recordingStartedRef.current = true;
+    setRecState('recording');
+    void camera.current?.startRecording(config.durationSec).then((started) => {
+      if (!started) setRecState('off');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordRequested, canRecord, cameraReady]);
 
   const stopRecording = async () => {
     if (recState !== 'recording') return;
     setRecState('stopping');
-
-    if (tracksFromCamera) {
-      // the file is not complete until the muxer says so, and Review would
-      // otherwise be handed a clip that stops partway through the set
-      const settled = new Promise<void>((resolve) => {
-        recordingSettledRef.current = resolve;
-      });
-      try {
-        await poseViewRef.current?.stopRecording();
-        await Promise.race([
-          settled,
-          new Promise<void>((resolve) => setTimeout(resolve, FINALIZE_TIMEOUT_MS)),
-        ]);
-      } catch {
-        // clip stays null — review will be skipped
-      } finally {
-        recordingSettledRef.current = null;
-      }
-      return;
-    }
-
-    try {
-      cameraRef.current?.stopRecording();
-      await recordPromiseRef.current;
-    } catch {
-      // clip stays null — review will be skipped
-    }
+    // resolves only once the clip is complete on disk, or null — never a
+    // half-written file; with no clip, Review is simply skipped
+    const uri = (await camera.current?.stopRecording()) ?? null;
+    if (uri) clip.attach(uri);
+    setRecState('off');
   };
 
   // background mid-set: stop everything, kill any clip (deal-breaker 1)
@@ -322,11 +258,14 @@ export function LiveStage({
         stopSpeech();
         engineRef.current?.pause();
         setPaused(true);
-        if (recState === 'recording') {
-          if (tracksFromCamera) void poseViewRef.current?.stopRecording();
-          else cameraRef.current?.stopRecording();
-        }
         void clip.deleteNow();
+        // the clip is already condemned: whatever arrives is attached to a
+        // deleted manager, which removes it on sight
+        if (recState === 'recording') {
+          void camera.current?.stopRecording().then((uri) => {
+            if (uri) clip.attach(uri);
+          });
+        }
       }
     });
     return () => sub.remove();
@@ -376,9 +315,17 @@ export function LiveStage({
   // shape. A frozen skeleton reads exactly like a still one — the lifter has
   // to be told the difference, mid-set, without looking away from the bar.
   const rigLinkLost = sources.poseOrigin === 'rig' && linkMode !== 'linked';
-  const meshFrame: MeshFrame | null = frame
-    ? { landmarks: frame.pose.landmarks, segments: frame.grade.segments, t: frame.t }
+  // A camera pose is in the frame's own coordinates, unmirrored; the flat
+  // skeleton is drawn over a preview that is cropped to the screen and, from
+  // the front camera, mirrored. Drawn as-is it would sit beside the lifter
+  // and step left when they step right.
+  const meshLandmarks = frame
+    ? frame.pose.source === 'camera' && frame.pose.frame
+      ? landmarksToScreen(frame.pose.landmarks, coverViewport(frame.pose.frame, { width, height }, facing === 'front'))
+      : frame.pose.landmarks
     : null;
+  const meshFrame: MeshFrame | null =
+    frame && meshLandmarks ? { landmarks: meshLandmarks, segments: frame.grade.segments, t: frame.t } : null;
 
   // The camera path tracks, measures and places the body itself; the rig
   // path has no picture to land on and is posed from a chosen angle
@@ -391,78 +338,9 @@ export function LiveStage({
   });
 
   return (
-    <View style={{ flex: 1, backgroundColor: color.void }}>
-      {/* The real camera sits behind the Mesh whenever it is allowed to —
-          seeing yourself under the skeleton is most of the point. It is
-          darkened so the graded segments stay readable over any gym. */}
-      {cameraLive ? (
-        <>
-          {PoseVisionView !== null ? (
-            /* Owns the camera outright — preview, detector and recorder off one
-               session, because Android will not open a camera twice and the
-               detector needs the frames the preview would otherwise keep. */
-            <PoseVisionView
-              ref={poseViewRef}
-              style={{ position: 'absolute', top: 0, left: 0, width, height }}
-              facing={facing}
-              detecting={!paused}
-              onPose={(e) => publishNativePose(e.nativeEvent)}
-              onStatus={(e) => {
-                if (e.nativeEvent.state === 'ready') {
-                  setCameraReady(true);
-                  if (recording) void startRecording();
-                } else {
-                  // the preview works, nothing is measuring behind it
-                  console.warn('[synapse] pose detector unavailable on this device');
-                  setCameraReady(true);
-                }
-              }}
-              onRecordingFinished={(e) => {
-                const target = pendingClipRef.current;
-                pendingClipRef.current = null;
-                if (target && e.nativeEvent.ok) {
-                  recordingUriRef.current = target.uri;
-                  clip.attach(target.uri);
-                }
-                setRecState('off');
-                recordingSettledRef.current?.();
-                recordingSettledRef.current = null;
-              }}
-              onCameraError={(e) => {
-                console.warn('[synapse] camera unavailable, falling back to the void', e.nativeEvent.message);
-                setCameraFailed(true);
-              }}
-            />
-          ) : (
-            <CameraView
-              ref={cameraRef}
-              style={{ position: 'absolute', top: 0, left: 0, width, height }}
-              facing={facing}
-              mute
-              onCameraReady={() => {
-                setCameraReady(true);
-                if (recording) startRecording();
-              }}
-              onMountError={(e) => {
-                // another app holds the camera, or the device has none usable
-                console.warn('[synapse] camera unavailable, falling back to the void', e);
-                setCameraFailed(true);
-              }}
-            />
-          )}
-          <View
-            style={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              width,
-              height,
-              backgroundColor: color.dim,
-            }}
-          />
-        </>
-      ) : null}
-
+    // The flow draws the camera behind this screen, so with one running the
+    // background has to let it through; without one, this is the void.
+    <View style={{ flex: 1, backgroundColor: cameraLive ? 'transparent' : color.void }}>
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
         {/* Three cases, one renderer.
 

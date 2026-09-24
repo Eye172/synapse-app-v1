@@ -150,40 +150,72 @@ end to end on-device and no frame ever leaves the phone.
 
 | Stage | Where | What it does |
 |---|---|---|
-| 1. Frames | `modules/pose-vision` (Kotlin) | CameraX owns the camera: preview, frame analysis and recording off one session |
-| 2. Landmarks | `PoseEngine.kt` | MediaPipe Pose (LIVE_STREAM) → 33 points in **two spaces** per frame |
-| 3. Crossing | `src/sources/camera/poseVisionBridge.ts` | Flattened arrays → `PoseObservation`; the axis flips happen here and nowhere else |
-| 4. Seam | `src/sources/camera/PoseDetector.ts` | The registry the rest of the app asks; no registration = camera reports unavailable |
-| 5. Tracking | `src/vision/` | One Euro smoothing, bone lengths over frames, camera solved per frame |
-| 6. Drawing | `src/ui/bodyVolumes.ts`, `facets.ts` | Solids built in metres, projected back through the solved lens |
+| 1. Camera | `src/train/SetCamera.tsx` | One camera for the whole set, mounted by the training flow — not by a stage |
+| 2. Frames | `modules/pose-vision` (Kotlin) | CameraX owns the camera: preview, frame analysis and recording off one session |
+| 3. Landmarks | `PoseEngine.kt` | MediaPipe Pose (LIVE_STREAM) → 33 points in **two spaces** per frame |
+| 4. Crossing | `src/sources/camera/poseVisionBridge.ts` | Flattened arrays → `PoseObservation`; axis flips and the clock fix happen here and nowhere else |
+| 5. Seam | `src/sources/camera/PoseDetector.ts`, `CameraPoseSource.ts` | The registry the rest of the app asks; no registration = camera reports unavailable |
+| 6. Tracking | `src/vision/` | One Euro smoothing, bone lengths over frames, camera solved per frame |
+| 7. Drawing | `src/ui/bodyVolumes.ts`, `facets.ts` | Solids built in metres, projected back through the solved lens |
+| 8. Grading | `src/engine/` | Joint angles from the same pose, in one unit along every axis |
 
-**Why the camera is a native module and not `expo-camera`.** `expo-camera`
-renders a preview and hands its frames to nobody, and Android will not open one
-camera twice. A detector that needs pixels therefore has to *replace* the
-preview rather than sit beside it — which is why `PoseVisionView` also carries
-the recorder. On a build without the native module the screen falls back to
-`expo-camera` automatically: the lifter still sees themselves, the Rig path is
-untouched, and nothing places a body on them.
+**Why the camera belongs to the flow.** `app/train.tsx` mounts `SetCamera`
+outside the keyed stage view, so the same camera runs from position-lock
+through the last rep. Position-lock needs frames to align a body against the
+ghost; while the camera lived inside the live screen, the lock screen listened
+for poses nothing was producing, and a camera-only set could never begin. It
+also means no second of black screen at the handover, and the tracker keeps
+the body it has just measured.
+
+**Why a native module and not `expo-camera`.** `expo-camera` renders a preview
+and hands its frames to nobody, and Android will not open one camera twice. A
+detector that needs pixels has to *replace* the preview — which is why
+`PoseVisionView` also carries the recorder. On a build without the native
+module `SetCamera` falls back to `expo-camera` automatically: the lifter still
+sees themselves, the Rig path is untouched, and nothing places a body on them.
+The Arm screen says so (`CAMERA · NO DETECTOR`) rather than promising a source.
 
 **The two spaces, and why both.** Image landmarks say *where on screen* a joint
 appeared and carry no scale. World landmarks say *how big the body is*, in
 metres. Neither alone can put a mannequin on a person; together they recover the
-lens that took the frame. A detector that produces only image points sets
-`world: null`, and the overlay shows the figure from a chosen angle rather than
-pretending to place it.
+lens that took the frame.
 
-**The axis convention, which is the one thing easy to get silently wrong.**
-MediaPipe reports both spaces y-down, with z growing *away* from the lens. This
-app uses y-up and z *toward* the viewer in metric space. Both are flipped
-exactly once, in `observationFromNative` — and a sign error there does not
-crash, it quietly builds a body facing backwards. `poseVisionBridge.test.ts`
-pins it.
+**Four conversions that fail silently when wrong.** None of these crash. Each
+one, got wrong, produces something that looks like a working app:
+
+| Conversion | Where | What wrong looks like |
+|---|---|---|
+| **Axes.** MediaPipe is y-down with z away from the lens; the app is y-up, z toward the viewer | `observationFromNative` | a body built facing backwards |
+| **Clock.** A frame is stamped on the wall clock the tracker samples by, never the sensor's boot clock | `frameTime` + `PoseEngine.capturedAtMs` | every joint reads hours stale and the figure never appears |
+| **Screen.** Frame coordinates, unmirrored, become screen coordinates over a cropped, mirrored preview | `landmarksToScreen` | the skeleton beside the wearer, stepping left as they step right |
+| **Units.** Per-axis normalization is undone before angles are measured | `isotropicLandmarks` | a 30° lean graded as 46°; a 120° knee read ~31° off |
+
+Each conversion has tests that fail when it is broken — checked by breaking it. The unit fix is also tested through the whole engine: take it out of `SetEngine` and a 30° lean comes back as 45.7°. The screen mapping is tested as a function; its two call sites, `PositionStage` and the flat fallback in `LiveStage`, are components and are not.
+
+**Handedness.** Frames are rotated upright but **never mirrored** before
+detection, even from the front camera. MediaPipe names a joint by the side of
+the body it is on; a mirrored frame would call the left knee the right one, and
+technique faults are reported by side. The preview is mirrored for the wearer —
+on screen, never in the data.
+
+**Hardware it has to survive.** The detector tries the GPU and retries on the
+CPU when the driver refuses (MediaPipe does not fall back by itself). The model
+is loaded into memory rather than named by asset path, so it works however the
+APK was packed. Preview, analysis and recording all ask for 16:9 so they see
+the same field of view. A camera that cannot run all three streams gives up
+recording, never detection — and says so, so the app does not offer a clip it
+cannot make. A detector that cannot start at all is reported to the source,
+which goes `unavailable` instead of searching forever.
+
+**Versions.** CameraX is kept on expo-camera's line (1.5.x): Gradle resolves one
+version for the APK and CameraX artifacts are only supported at matching
+versions. MediaPipe `tasks-vision` is pinned to the same 1.0 line the web
+harness runs, never `latest.release`.
 
 **Changing the detector.** Swap the model by replacing
-`modules/pose-vision/android/src/main/assets/pose_landmarker_full.task` (keep
-the `noCompress` rule in `build.gradle` — MediaPipe memory-maps the asset and
-cannot read a deflated one). To use a different landmarker entirely, implement
-`PoseDetectorFactory` and register it instead:
+`modules/pose-vision/android/src/main/assets/pose_landmarker_full.task`. To use
+a different landmarker entirely, implement `PoseDetectorFactory` and register it
+instead:
 
 ```ts
 import { registerPoseDetector } from '@/src/sources/camera/PoseDetector';
@@ -195,6 +227,20 @@ pipeline in a browser — the pages bundle the app's own modules, so what the
 browser draws is what the app would draw. `node harness/serve.js` replays
 clips and reference stills; `node live/serve.js` runs it off a laptop webcam.
 Neither has its own copy of the maths, which is the point.
+
+### Recording — one clip, from start to Review or to nothing
+
+`src/train/clipRecorder.ts` owns a clip's life, independent of any camera so it
+can be tested without one. A clip is handed over only once the muxer has
+**finalized** it — a path given out at stop is a truncated file. A recording
+that ends by itself (a duration cap) is held for the stop that follows. A clip
+that finishes after its screen is gone, or after the wait for it was given up,
+is deleted on arrival; the stale-clip sweep at launch is the backstop.
+
+On the `expo-camera` fallback the preview runs in `mode="video"`: expo-camera
+binds its recorder only in video mode, and in the default picture mode
+`recordAsync` has nothing to record with. Every earlier build had that bug, so
+no clip ever reached Review on Android.
 
 ### Technique grading — the seam left open
 
@@ -279,7 +325,7 @@ synapse/
 └── assets/                 # generated brand assets + the two lesson clips we can honestly label
 ```
 
-Verification: `npm run typecheck` · `npm test` (313 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+Verification: `npm run typecheck` · `npm test` (357 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
 
 ### Non-negotiables, enforced in code
 

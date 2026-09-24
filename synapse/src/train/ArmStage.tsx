@@ -3,6 +3,7 @@ import React from 'react';
 import { ScrollView, Switch, View } from 'react-native';
 
 import type { ExerciseSpec } from '@/src/engine/types';
+import { CameraPoseSource } from '@/src/sources/camera/CameraPoseSource';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
@@ -42,6 +43,14 @@ export function ArmStage({
   const facing = useSettingsStore((s) => s.cameraFacing);
   const setSetting = useSettingsStore((s) => s.set);
   const camDenied = camPerm?.granted === false && camPerm?.canAskAgain === false;
+  // Granted is not the same as measuring. A build without the pose detector
+  // can show the camera but cannot place a body from it, and this line is
+  // where the wearer decides whether a set can start — it must not promise a
+  // source that will measure nothing.
+  const cameraMeasures = camGranted && CameraPoseSource.available();
+  const meshSource =
+    mode === 'linked' ? 'RIG · FULL BODY' : cameraMeasures ? 'CAMERA' : camGranted ? 'CAMERA · NO DETECTOR' : 'NO SOURCE';
+  const meshTint = mode === 'linked' || cameraMeasures ? color.mesh : camGranted ? color.warn : color.textLo;
 
   return (
     <ScrollView contentContainerStyle={{ paddingHorizontal: space.gutter, paddingBottom: 48, gap: space.sm }} showsVerticalScrollIndicator={false}>
@@ -54,11 +63,7 @@ export function ArmStage({
         <AppText variant="nano" color={color.textLo}>
           SOURCES
         </AppText>
-        <StatusLine
-          k="MESH"
-          v={mode === 'linked' ? 'RIG · FULL BODY' : camGranted ? 'CAMERA' : 'NO SOURCE'}
-          tint={mode === 'linked' ? color.mesh : camGranted ? color.mesh : color.textLo}
-        />
+        <StatusLine k="MESH" v={meshSource} tint={meshTint} />
         <StatusLine
           k="RIG"
           v={mode.toUpperCase()}
