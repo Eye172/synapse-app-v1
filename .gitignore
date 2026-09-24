@@ -12,6 +12,11 @@ web-build/
 synapse/android/
 synapse/ios/
 
+# Gradle writes each local Expo module's build output next to its sources;
+# only CI used to build, so nothing ever produced these until a local build did
+synapse/modules/*/android/build/
+synapse/modules/*/android/.cxx/
+
 # the partial gradle copy in materials is build junk, not source
 materials/base/android/
 

@@ -132,7 +132,11 @@ export function publishDetectorState(state: 'loading' | 'ready' | 'unavailable',
   for (const listener of failureListeners) listener(reason);
 }
 
-/** Forget everything a previous camera said — used when a flow begins afresh. */
+/**
+ * Forget a failure a previous camera reported. The app never needs to call
+ * this: a camera's first status as it comes up is `loading` or `ready`, and
+ * either clears it. It exists so tests can start from a clean slate.
+ */
 export function resetPoseVision(): void {
   detectorFailure = null;
 }

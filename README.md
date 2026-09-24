@@ -34,6 +34,45 @@ node scripts/send-test-packet.js <phone-ip> --stream
 > **Windows note:** if Metro dies near the end of a bundle, the machine is RAM-starved — use
 > `NODE_OPTIONS=--max-old-space-size=3072 npx expo start --offline --max-workers 1`.
 
+### Build the APK locally
+
+The Rig receiver (`modules/rig-udp`) and the camera detector (`modules/pose-vision`) are native code: they exist only in a real build, never in Expo Go. Compile them locally before asking CI for a release — a CI run takes ~25 minutes and publishes a Release the tester sees, while a local check of one module takes two.
+
+**What the build needs** (versions are set by `node_modules/react-native/gradle/libs.versions.toml`):
+
+| Tool | Version |
+|---|---|
+| JDK | 17 (not 8 or 11 — AGP 8 refuses them) |
+| Android SDK platform | 36 |
+| Build-tools | 36.0.0 (AGP also pulls 35.0.0 on its own) |
+| NDK | 27.1.12297006 — the New Architecture compiles C++ |
+| CMake | 3.22.1 |
+
+**Steps**, with the toolchain kept on `D:\android-toolchain` on the development machine:
+
+```powershell
+cd synapse
+npx expo prebuild --platform android --no-install   # generates android/, which is gitignored
+
+$env:JAVA_HOME        = 'D:\android-toolchain\jdk-17.0.20.1+1'
+$env:ANDROID_HOME     = 'D:\android-toolchain\sdk'
+$env:GRADLE_USER_HOME = 'D:\android-toolchain\gradle-home'
+$env:JAVA_TOOL_OPTIONS = '-Djavax.net.ssl.trustStoreType=Windows-ROOT'   # see below
+cd android
+
+.\gradlew.bat :pose-vision:compileReleaseKotlin --no-daemon                          # ~2 min: the camera module only
+.\gradlew.bat assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a      # the whole APK, one ABI
+```
+
+The APK lands in `android/app/build/outputs/apk/release/`. CI builds all four ABIs; one is enough to prove the native code compiles and links.
+
+Two traps, both of which fail with a message that points somewhere else:
+
+- **`android/local.properties` needs forward slashes**: `sdk.dir=D\:/android-toolchain/sdk`. Backslashes are escape characters in a `.properties` file, `D:\android-toolchain\sdk` is read as `D:android-toolchainsdk`, and the error is an `IOException` from `SdkLocator` saying the file name syntax is wrong — on a Russian-locale Windows, in unreadable mojibake.
+- **An antivirus that scans HTTPS breaks every Java tool.** Avast (and others) re-sign every site with their own root certificate. Windows trusts it, so browsers and `curl` work; Java carries its own trust store and does not, so `sdkmanager`, the Gradle wrapper and Gradle itself fail with `PKIX path building failed`. `JAVA_TOOL_OPTIONS=-Djavax.net.ssl.trustStoreType=Windows-ROOT` makes Java trust exactly what Windows trusts. Do not switch off certificate checking instead.
+
+**Releases for testers** still come from GitHub Actions (`.github/workflows/build-apk.yml`). Every run — manual *Run workflow* or a pushed `v*` tag — publishes a GitHub Release with the APK attached, so run it once the local build is green.
+
 ---
 
 ## What this build ships vs. the roadmap

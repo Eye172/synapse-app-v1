@@ -1,6 +1,7 @@
 package expo.modules.posevision
 
 import androidx.camera.core.CameraSelector
+import expo.modules.kotlin.functions.Queues
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
@@ -35,13 +36,16 @@ class PoseVisionModule : Module() {
         view.detecting = detecting
       }
 
+      // Both on the main thread, where the recorder's finish callback also
+      // arrives: the view's recording state is then only ever touched from one
+      // thread. Expo runs async functions on a background queue by default.
       AsyncFunction("startRecording") { view: PoseVisionView, path: String ->
         view.startRecording(path)
-      }
+      }.runOnQueue(Queues.MAIN)
 
       AsyncFunction("stopRecording") { view: PoseVisionView ->
         view.stopRecording()
-      }
+      }.runOnQueue(Queues.MAIN)
     }
   }
 }
