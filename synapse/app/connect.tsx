@@ -62,6 +62,7 @@ export default function ConnectScreen() {
   const insets = useSafeAreaInsets();
   const mode = useConnectionStore((s) => s.mode);
   const nodeCount = useConnectionStore((s) => s.nodeCount);
+  const nodesHeard = useConnectionStore((s) => s.nodesHeard);
   const hz = useConnectionStore((s) => s.hz);
   const battery = useConnectionStore((s) => s.battery);
   const calNodes = useSettingsStore((s) => Object.keys(s.rigCalibration).length);
@@ -184,8 +185,31 @@ export default function ConnectScreen() {
               <View style={{ gap: 4 }}>
                 {RIG_NODE_IDS.map((id) => {
                   const node = liveNodes.find((n) => n.id === id);
-                  const reporting = node !== undefined;
-                  const faulted = node?.alert === true;
+                  // heard and reading are different states, and the gap
+                  // between them is the whole diagnosis: a strap that arrives
+                  // in every packet with no orientation is mounted and wired
+                  // but has no fix, which is not the same problem as a strap
+                  // that never arrives at all
+                  const heard = node !== undefined;
+                  const reading = node?.quat !== undefined;
+                  const alerting = node?.alert === true;
+                  const corrupt = node?.fault === 'denormal';
+                  const ink = alerting || corrupt
+                    ? color.error
+                    : reading
+                      ? color.mesh
+                      : heard
+                        ? color.warn
+                        : color.textLo;
+                  const label = alerting
+                    ? 'ALERT'
+                    : corrupt
+                      ? 'CORRUPT'
+                      : reading
+                        ? 'REPORTING'
+                        : heard
+                          ? 'NO FIX'
+                          : 'SILENT';
                   return (
                     <View key={id} style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <View
@@ -193,19 +217,29 @@ export default function ConnectScreen() {
                           width: 5,
                           height: 5,
                           borderRadius: 3,
-                          backgroundColor: faulted ? color.error : reporting ? color.mesh : color.lineStrong,
+                          backgroundColor: heard ? ink : color.lineStrong,
                         }}
                       />
-                      <AppText variant="nano" color={reporting ? color.textMid : color.textLo} style={{ width: 74 }}>
+                      <AppText variant="nano" color={heard ? color.textMid : color.textLo} style={{ width: 74 }}>
                         {NODE_LABEL[id]}
                       </AppText>
-                      <AppText variant="nano" color={faulted ? color.error : reporting ? color.mesh : color.textLo}>
-                        {faulted ? 'ALERT' : reporting ? 'REPORTING' : 'SILENT'}
+                      <AppText variant="nano" color={ink}>
+                        {label}
                       </AppText>
                     </View>
                   );
                 })}
               </View>
+
+              {/* The case the field test hit: the rig is on the hotspot and
+                  its packets are arriving, but not one IMU has settled. The
+                  old build discarded those packets and showed nothing at all,
+                  which read as dead hardware. */}
+              {nodesHeard > 0 && nodeCount === 0 ? (
+                <AppText variant="nano" color={color.warn}>
+                  ⚠ RIG IS STREAMING · {nodesHeard} NODE{nodesHeard === 1 ? '' : 'S'} HEARD · NONE HAS A FIX YET
+                </AppText>
+              ) : null}
 
               {alertFlag ? (
                 <AppText variant="nano" color={color.error}>

@@ -1,6 +1,7 @@
 import {
   RIG_NODE_ORDER,
   isRigNodeId,
+  type NodeReadingFault,
   type RigNodeId,
   type SensorFrame,
   type SensorNode,
@@ -108,18 +109,39 @@ function parseLenient(text: string): unknown {
   }
 }
 
-/** Validate + normalize a quaternion into scalar-first (r, i, j, k). */
-function readQuatArray(raw: unknown, scalarLast: boolean): [number, number, number, number] | undefined {
+/**
+ * A quaternion field that was present, read either way it can go.
+ *
+ * `undefined` from the readers below means "this was not a quaternion at
+ * all" so the next spelling can be tried; a `fault` means "this *was* the
+ * quaternion and it is not usable", which is a different thing and has to
+ * survive as far as the UI.
+ */
+type QuatRead =
+  | { quat: [number, number, number, number]; fault?: undefined }
+  | { quat?: undefined; fault: NodeReadingFault };
+
+/**
+ * Validate + normalize a quaternion into scalar-first (r, i, j, k).
+ *
+ * An all-zero reading is singled out from other bad norms because it is not
+ * corruption: it is what a BNO08x reports before it has a fix, and a rig
+ * that has just been powered on sends nothing else. Telling the wearer
+ * "the back sensor has no fix yet" is useful; telling them "malformed
+ * packet" — or, worse, saying nothing at all — is not.
+ */
+function readQuatArray(raw: unknown, scalarLast: boolean): QuatRead | undefined {
   if (!Array.isArray(raw) || raw.length !== 4 || !raw.every(finite)) return undefined;
   const a = raw as [number, number, number, number];
   const q: [number, number, number, number] = scalarLast ? [a[3], a[0], a[1], a[2]] : [a[0], a[1], a[2], a[3]];
   const norm = Math.hypot(q[0], q[1], q[2], q[3]);
-  if (!(norm > QUAT_NORM_MIN && norm < QUAT_NORM_MAX)) return undefined;
-  return [q[0] / norm, q[1] / norm, q[2] / norm, q[3] / norm];
+  if (norm === 0) return { fault: 'zero' };
+  if (!(norm > QUAT_NORM_MIN && norm < QUAT_NORM_MAX)) return { fault: 'denormal' };
+  return { quat: [q[0] / norm, q[1] / norm, q[2] / norm, q[3] / norm] };
 }
 
 /** Named `{"r":…,"i":…,"j":…,"k":…}` form. */
-function readQuatObject(raw: unknown): [number, number, number, number] | undefined {
+function readQuatObject(raw: unknown): QuatRead | undefined {
   if (!isObject(raw)) return undefined;
   const { r, i, j, k } = raw;
   if (!finite(r) || !finite(i) || !finite(j) || !finite(k)) return undefined;
@@ -132,10 +154,19 @@ function readQuatObject(raw: unknown): [number, number, number, number] | undefi
  * earlier revision's longer key. Object and array can't collide, so trying
  * each in turn is unambiguous rather than a guess.
  */
-function readNodeQuat(entry: Record<string, unknown>): [number, number, number, number] | undefined {
+function readNodeQuat(entry: Record<string, unknown>): QuatRead | undefined {
   return (
     readQuatObject(entry.q) ?? readQuatObject(entry.quaternions) ?? readQuatArray(entry.q, v2ScalarLast)
   );
+}
+
+/**
+ * Apply a quaternion read to a node. Orientation and fault are mutually
+ * exclusive by construction, so the UI never has to decide which to believe.
+ */
+function applyQuat(node: SensorNode, read: QuatRead | undefined): void {
+  if (read?.quat) node.quat = read.quat;
+  else if (read?.fault) node.fault = read.fault;
 }
 
 /** Reads a node's fault flag under either spelling. */
@@ -170,11 +201,11 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
     for (let idx = 0; idx < obj.length && idx < RIG_NODE_ORDER.length; idx++) {
       const entry = obj[idx];
       if (!isObject(entry)) continue;
-      const quat = readNodeQuat(entry);
+      const read = readNodeQuat(entry);
       const alert = readNodeAlert(entry);
-      if (quat === undefined && alert === undefined) continue;
+      if (read === undefined && alert === undefined) continue;
       const node: SensorNode = { id: RIG_NODE_ORDER[idx]! };
-      if (quat) node.quat = quat;
+      applyQuat(node, read);
       if (alert !== undefined) {
         node.alert = alert;
         anyAlert = anyAlert || alert;
@@ -204,11 +235,11 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
       const packed = Array.isArray(raw);
       // the packed form is a bare array, so it is exactly as ambiguous about
       // component order as the compact form and obeys the same runtime toggle
-      const quat = packed ? readQuatArray(raw, v2ScalarLast) : readNodeQuat(raw as Record<string, unknown>);
+      const read = packed ? readQuatArray(raw, v2ScalarLast) : readNodeQuat(raw as Record<string, unknown>);
       const alert = packed ? undefined : readNodeAlert(raw as Record<string, unknown>);
-      if (quat === undefined && alert === undefined) continue;
+      if (read === undefined && alert === undefined) continue;
       const node: SensorNode = { id: key as RigNodeId };
-      if (quat) node.quat = quat;
+      applyQuat(node, read);
       if (alert !== undefined) {
         node.alert = alert;
         anyAlert = anyAlert || alert;
@@ -240,8 +271,8 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
       const id: RigNodeId | null = rawId === 'spine' ? 'back' : isRigNodeId(rawId) ? rawId : null;
       if (id === null) continue;
       const node: SensorNode = { id };
-      const quat = readQuatObject(entry.quaternions) ?? readQuatArray(entry.q, V1_QUAT_SCALAR_LAST);
-      if (quat) node.quat = quat;
+      const read = readQuatObject(entry.quaternions) ?? readQuatArray(entry.q, V1_QUAT_SCALAR_LAST);
+      applyQuat(node, read);
       if (finite(entry.angle)) node.angleDeg = clampAngle(entry.angle);
       if (finite(entry.angleDeg)) node.angleDeg = clampAngle(entry.angleDeg as number);
       const alert = readBool(entry.alert);
@@ -249,7 +280,14 @@ export function parseRigPayload(raw: string | Uint8Array, now: number): SensorFr
         node.alert = alert;
         anyAlert = anyAlert || alert;
       }
-      if (node.quat === undefined && node.angleDeg === undefined && alert === undefined) continue;
+      if (
+        node.quat === undefined &&
+        node.fault === undefined &&
+        node.angleDeg === undefined &&
+        alert === undefined
+      ) {
+        continue;
+      }
       nodes.push(node);
     }
     if (nodes.length === 0) return null;

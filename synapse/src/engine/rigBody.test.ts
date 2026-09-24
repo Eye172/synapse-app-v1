@@ -239,3 +239,34 @@ describe('rigLandmarks — the exoskeleton draws a body', () => {
     expect(lms[LM.leftKnee]!.v).toBeLessThan(0.35);
   });
 });
+
+/**
+ * The parser now keeps a node that arrived with no usable orientation, so
+ * that the Connect screen can tell "no fix yet" from "no sensor". Geometry
+ * must not follow it: a segment placed from a zeroed quaternion would sit at
+ * the neutral pose and look exactly like a limb held still, which is the one
+ * reading the wearer must never be given.
+ */
+describe('a node that reported no orientation', () => {
+  it('is ignored by the body state, exactly as an absent one is', () => {
+    const cal = new RigCalibration();
+    const withFault = rigBodyState(
+      {
+        t: 1,
+        nodes: [
+          { id: 'back', quat: [1, 0, 0, 0] },
+          { id: 'leftArm', fault: 'zero' },
+        ],
+        flags: {},
+        protocol: 'v2-packed',
+      },
+      cal,
+    );
+    const withoutIt = rigBodyState(
+      { t: 1, nodes: [{ id: 'back', quat: [1, 0, 0, 0] }], flags: {}, protocol: 'v2-packed' },
+      cal,
+    );
+    expect(withFault.segments.leftArm).toBeUndefined();
+    expect(Object.keys(withFault.segments)).toEqual(Object.keys(withoutIt.segments));
+  });
+});

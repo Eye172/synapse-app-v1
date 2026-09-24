@@ -32,6 +32,7 @@ const MODE_INK = {
 export function ConnectionChip() {
   const mode = useConnectionStore((s) => s.mode);
   const nodeCount = useConnectionStore((s) => s.nodeCount);
+  const nodesHeard = useConnectionStore((s) => s.nodesHeard);
   const hz = useConnectionStore((s) => s.hz);
   const router = useRouter();
   const tint = color[MODE_INK[mode]];
@@ -47,7 +48,15 @@ export function ConnectionChip() {
   }, [mode, pulse]);
   const dotStyle = useAnimatedStyle(() => ({ opacity: pulse.value }));
 
-  const detail = mode === 'linked' ? ` · ${nodeCount}/5 · ${hz}HZ` : '';
+  // A link that carries packets but no orientation is not a working rig, and
+  // the chip is the one thing on screen at all times — it says so rather than
+  // reading "5/5" off a packet in which nothing has a fix.
+  const detail =
+    mode === 'linked'
+      ? nodeCount === 0 && nodesHeard > 0
+        ? ' · NO FIX'
+        : ` · ${nodeCount}/5 · ${hz}HZ`
+      : '';
 
   return (
     <PressableScale

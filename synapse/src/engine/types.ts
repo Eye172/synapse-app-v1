@@ -122,6 +122,27 @@ export interface SensorFrame {
   protocol: 'v0' | 'v1' | 'v2-named' | 'v2-packed' | 'v2-array';
 }
 
+/**
+ * Why a node that *was* in the packet still carries no orientation.
+ *
+ * A rig that is mounted and transmitting but not yet producing a fix looks,
+ * to anyone reading a parser that drops unusable nodes, exactly like a rig
+ * that is not there at all. In the field those are opposite problems — one
+ * is "wait" and the other is "check the wiring" — so the reason travels with
+ * the node instead of being thrown away.
+ *
+ *  - `zero`     all four components are 0. A BNO08x reports this before its
+ *               first fix, and the firmware ships it rather than waiting.
+ *  - `denormal` non-zero but not a unit quaternion: a corrupt or partial read.
+ *
+ * Both are four finite numbers — the node is well-formed and only its *value*
+ * is unusable. Anything that is not four finite numbers is not a quaternion
+ * at all, and is still rejected outright rather than being reported as a
+ * fault: junk on an open UDP port must not be able to pass itself off as a
+ * rig with a bad sensor.
+ */
+export type NodeReadingFault = 'zero' | 'denormal';
+
 export interface SensorNode {
   /** rig mount point; legacy v0/v1 payloads map their single node to "back" */
   id: RigNodeId;
@@ -131,6 +152,11 @@ export interface SensorNode {
   quat?: [number, number, number, number];
   /** legacy v0 scalar pitch, degrees */
   angleDeg?: number;
+  /**
+   * Set when `quat` is absent because the reading was unusable rather than
+   * because this payload never carried one. Never set alongside `quat`.
+   */
+  fault?: NodeReadingFault;
 }
 
 // ---------- metrics ----------

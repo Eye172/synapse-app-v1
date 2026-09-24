@@ -195,10 +195,56 @@ describe('Rig payload normalizer — v2 packed named form', () => {
     ['three components', '{"back":[1,0,0]}'],
     ['five components', '{"back":[1,0,0,0,0]}'],
     ['strings', '{"back":["1","0","0","0"]}'],
-    ['all zeroes — not a rotation', '{"back":[0,0,0,0]}'],
     ['nested arrays', '{"back":[[1],[0],[0],[0]]}'],
   ])('rejects %s', (_n, payload) => {
     expect(parseRigPayload(payload, NOW)).toBeNull();
+  });
+
+  /**
+   * A rig that has been switched on but has no fix yet sends all zeroes, and
+   * that is the state a tester is most likely to meet: the hardware is
+   * mounted, powered and transmitting, and the sensor has simply not settled.
+   * Dropping the packet made this indistinguishable from a rig that was never
+   * there — which is exactly what the field report described.
+   */
+  it('keeps a zeroed node rather than discarding the packet', () => {
+    const frame = parseRigPayload('{"back":[0,0,0,0]}', NOW);
+    expect(frame).not.toBeNull();
+    expect(frame!.nodes).toEqual([{ id: 'back', fault: 'zero' }]);
+    expect(frame!.nodes[0]!.quat).toBeUndefined();
+  });
+
+  it('reads the whole firmware packet when no sensor has a fix yet', () => {
+    const pack = JSON.stringify({
+      back: [0, 0, 0, 0],
+      leftArm: [0, 0, 0, 0],
+      leftLeg: [0, 0, 0, 0],
+      rightArm: [0, 0, 0, 0],
+      rightLeg: [0, 0, 0, 0],
+    });
+    const frame = parseRigPayload(pack, NOW);
+    expect(frame).not.toBeNull();
+    expect(frame!.protocol).toBe('v2-packed');
+    expect(frame!.nodes).toHaveLength(5);
+    expect(frame!.nodes.every((n) => n.fault === 'zero')).toBe(true);
+  });
+
+  it('separates a sensor with no fix from one that is reading', () => {
+    const frame = parseRigPayload('{"back":[1,0,0,0],"leftArm":[0,0,0,0]}', NOW);
+    expect(frame!.nodes).toHaveLength(2);
+    expect(frame!.nodes[0]).toEqual({ id: 'back', quat: [1, 0, 0, 0] });
+    expect(frame!.nodes[1]).toEqual({ id: 'leftArm', fault: 'zero' });
+  });
+
+  /** A value that is not four finite numbers is not a reading at all. */
+  it('still rejects a malformed quaternion outright, not as a fault', () => {
+    expect(parseRigPayload('{"back":[1,0,0]}', NOW)).toBeNull();
+    expect(parseRigPayload('{"back":["1","0","0","0"]}', NOW)).toBeNull();
+  });
+
+  it('marks a non-unit reading as corrupt rather than trusting it', () => {
+    const frame = parseRigPayload('{"back":[9,9,9,9]}', NOW);
+    expect(frame!.nodes).toEqual([{ id: 'back', fault: 'denormal' }]);
   });
 });
 
@@ -288,7 +334,6 @@ describe('Rig payload normalizer — hostile input never throws', () => {
     ['named q of strings', '{"back":{"q":{"r":"1","i":"0","j":"0","k":"0"}}}'],
     ['named q missing a component', '{"back":{"q":{"r":1,"i":0,"j":0}}}'],
     ['quaternion with NaN', '{"back":{"q":[1e999,0,0,0]}}'],
-    ['degenerate zero quaternion', '{"back":{"q":[0,0,0,0]}}'],
     ['nodes not an array', '{"v":1,"nodes":5}'],
     ['null root', 'null'],
     ['bare number', '42'],

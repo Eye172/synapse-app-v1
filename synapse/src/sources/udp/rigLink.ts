@@ -34,17 +34,21 @@ class RigLinkManager {
     this.unsubs.push(
       src.onStatus((s) => {
         const store = useConnectionStore.getState();
-        if (s === 'searching') store.set({ mode: 'searching', nodeCount: 0, hz: 0 });
+        if (s === 'searching') store.set({ mode: 'searching', nodeCount: 0, nodesHeard: 0, hz: 0 });
         else if (s === 'active') store.set({ mode: 'linked' });
         else if (s === 'lost') store.set({ mode: 'searching' });
         else if (s === 'unavailable' || s === 'idle') {
-          store.set({ mode: 'offline', nodeCount: 0, hz: 0 });
+          store.set({ mode: 'offline', nodeCount: 0, nodesHeard: 0, hz: 0 });
         }
       }),
       src.onFrame((f: SensorFrame) => {
         const store = useConnectionStore.getState();
+        // only a node with an orientation is measuring anything; one that
+        // arrived with a zeroed or corrupt reading is heard but not reading,
+        // and the chip must not count it as a working sensor
         store.set({
-          nodeCount: f.nodes.length,
+          nodeCount: f.nodes.filter((n) => n.quat !== undefined).length,
+          nodesHeard: f.nodes.length,
           battery: f.battery ?? store.battery,
         });
       }),
@@ -66,7 +70,7 @@ class RigLinkManager {
     this.chipTimer = null;
     this.source?.stop();
     this.source = null;
-    useConnectionStore.getState().set({ mode: 'offline', nodeCount: 0, hz: 0 });
+    useConnectionStore.getState().set({ mode: 'offline', nodeCount: 0, nodesHeard: 0, hz: 0 });
   }
 }
 
@@ -90,6 +94,10 @@ export async function calibrateNeutral(
   const durationMs = opts.durationMs ?? 3000;
   const collector = new CalibrationCollector();
   const t0 = Date.now();
+  // "nothing arrived" and "everything arrived with no fix" both end with an
+  // empty collector, and they send the wearer to opposite places: one is the
+  // network, the other is the sensors. Counting packets separates them.
+  let packetsSeen = 0;
 
   return new Promise((resolve) => {
     let settled = false;
@@ -102,6 +110,7 @@ export async function calibrateNeutral(
     };
 
     const unsub = src.onFrame((f) => {
+      packetsSeen += 1;
       collector.add(f);
       opts.onProgress?.(Math.min(1, (Date.now() - t0) / durationMs), collector.nodeCount);
     });
@@ -114,9 +123,11 @@ export async function calibrateNeutral(
           ok: false,
           nodes: collector.nodeCount,
           reason:
-            collector.nodeCount === 0
-              ? 'No orientation data arrived — is the Rig streaming?'
-              : 'The back node never reported; it anchors the body reference.',
+            collector.nodeCount > 0
+              ? 'The back node never reported; it anchors the body reference.'
+              : packetsSeen === 0
+                ? 'No packets arrived. Check the Rig is powered and joined to this phone’s hotspot.'
+                : `The Rig is streaming (${packetsSeen} packet${packetsSeen === 1 ? '' : 's'}), but no sensor produced an orientation. Give the IMUs a few seconds to find their fix; if it persists, the sensors are wired but not reading.`,
         });
         return;
       }
