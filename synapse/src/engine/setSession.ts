@@ -8,6 +8,7 @@ import type { Coach, CoachCue } from '@/src/coach/types';
 import type { PoseSource, SensorSource, Unsubscribe } from '@/src/sources/types';
 
 import { MetricFusion, type DataSourceLabel } from './fusion';
+import { isotropicLandmarks } from './geometry';
 import { MetricTracker, deriveMetrics } from './poseMetrics';
 import { RigCalibration, rigBodyState, rigMetrics } from './rigBody';
 import { RepCounter, tempoAdherence, type RepTiming } from './repCounter';
@@ -191,7 +192,9 @@ export class SetEngine {
     if (!this.running || this.paused) return;
     const t = pose.t;
 
-    const poseMetrics = deriveMetrics(pose.landmarks, t, this.tracker);
+    // a camera frame's points are normalized per axis; the grader measures
+    // angles, which are only true in a space where every axis has one unit
+    const poseMetrics = deriveMetrics(isotropicLandmarks(pose.landmarks, pose.frame), t, this.tracker);
     const { metrics, source } = this.fusion.fuse(
       poseMetrics,
       t,

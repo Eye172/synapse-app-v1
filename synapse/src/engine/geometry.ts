@@ -64,3 +64,25 @@ export function clamp(v: number, lo: number, hi: number): number {
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
+
+/**
+ * Landmarks rewritten so one unit is the same distance along every axis.
+ *
+ * A detector normalizes image points by the frame: x as a fraction of its
+ * width, y of its height, and z on x's scale. On any frame that is not square
+ * those are different units, and an angle measured across them is wrong —
+ * on a 720×1280 phone frame a torso leaning 30° from vertical reads as about
+ * 46°, which is a fault on every rep of a lift done perfectly. Axis-aligned
+ * angles survive the distortion, which is why it does not show up on a
+ * straight-on test pose and does show up the moment someone leans.
+ *
+ * Everything is expressed in frame heights, so y and every y-based threshold
+ * mean exactly what they did before; only x and z are rescaled. A pose with no
+ * frame, or a square one, is returned untouched — the Rig and the simulator
+ * already produce points in a single unit.
+ */
+export function isotropicLandmarks(landmarks: Landmark[], frame?: { width: number; height: number }): Landmark[] {
+  if (!frame || !(frame.width > 0) || !(frame.height > 0) || frame.width === frame.height) return landmarks;
+  const k = frame.width / frame.height;
+  return landmarks.map((l) => (l.z === undefined ? { ...l, x: l.x * k } : { ...l, x: l.x * k, z: l.z * k }));
+}

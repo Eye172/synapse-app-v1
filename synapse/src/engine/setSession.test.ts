@@ -111,3 +111,65 @@ describe('SetEngine — full demo-mode set, headless', () => {
     expect(text).toContain('3');
   }, 30000);
 });
+
+/**
+ * The unit fix is only worth anything if the engine applies it. This drives a
+ * single camera frame through the whole set pipeline — the way a phone would —
+ * and reads the lean back off the frame the live screen receives.
+ */
+describe('SetEngine — a camera pose is graded in one unit', () => {
+  function cameraLean(leanDeg: number) {
+    const W = 720;
+    const H = 1280;
+    const px = (x: number, y: number) => ({ x: x / W, y: y / H, v: 1 });
+    const len = 420;
+    const rad = (leanDeg * Math.PI) / 180;
+    const hip = { x: 360, y: 900 };
+    const shoulder = { x: hip.x + len * Math.sin(rad), y: hip.y - len * Math.cos(rad) };
+    const landmarks = Array.from({ length: 33 }, () => ({ x: 0, y: 0, v: 0 }));
+    // a side-on body, so the lean is measurable from the picture alone
+    landmarks[11] = px(shoulder.x, shoulder.y);
+    landmarks[12] = px(shoulder.x + 1, shoulder.y);
+    landmarks[23] = px(hip.x, hip.y);
+    landmarks[24] = px(hip.x + 1, hip.y);
+    return { landmarks, frame: { width: W, height: H } };
+  }
+
+  function torsoLeanFrom(pose: { landmarks: { x: number; y: number; v: number }[]; frame: { width: number; height: number } }) {
+    let emit: ((f: unknown) => void) | null = null;
+    const source = {
+      kind: 'camera' as const,
+      status: 'active' as const,
+      start() {},
+      stop() {},
+      onPose(cb: (f: unknown) => void) {
+        emit = cb;
+        return () => {};
+      },
+      onStatus() {
+        return () => {};
+      },
+    };
+    const leans: (number | null)[] = [];
+    const engine = new SetEngine(SQUAT, {
+      poseSource: source as never,
+      sensorSource: null,
+      coach: new RuleCoach(),
+      events: { onFrame: (f) => leans.push(f.metrics.torsoLean ?? null) },
+    });
+    engine.start();
+    emit!({ t: Date.now(), source: 'camera', landmarks: pose.landmarks, frame: pose.frame });
+    engine.stop();
+    return leans[0] ?? null;
+  }
+
+  it('reads a 30° lean as 30°, not the ~46° per-axis normalization would give', () => {
+    const lean = torsoLeanFrom(cameraLean(30));
+    expect(lean).not.toBeNull();
+    expect(lean!).toBeCloseTo(30, 0);
+  });
+
+  it('reads an upright torso as upright', () => {
+    expect(torsoLeanFrom(cameraLean(0))!).toBeCloseTo(0, 0);
+  });
+});
