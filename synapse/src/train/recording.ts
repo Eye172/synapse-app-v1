@@ -50,6 +50,34 @@ export async function purgeStaleClips(): Promise<void> {
   }
 }
 
+/**
+ * Where the next clip goes.
+ *
+ * Two spellings of the same location, because the two sides of the bridge
+ * disagree about what a file is: `uri` is the `file://` form the app's own
+ * file helpers and the video player expect, and `path` is the bare
+ * filesystem path the native recorder opens. Deriving one from the other at
+ * the call site is how a clip ends up written somewhere nothing will sweep.
+ *
+ * It sits under the same `Camera` directory `purgeStaleClips` clears, so a
+ * process killed mid-set still cannot leave a recording behind (§2.12).
+ */
+export async function nextClipTarget(now: number = Date.now()): Promise<{ uri: string; path: string } | null> {
+  try {
+    const FileSystem = require('expo-file-system/legacy') as typeof import('expo-file-system/legacy');
+    const base = FileSystem.cacheDirectory;
+    if (!base) return null;
+    const dir = `${base}Camera`;
+    const info = await FileSystem.getInfoAsync(dir);
+    if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+    const uri = `${dir}/set-${now}.mp4`;
+    return { uri, path: uri.replace(/^file:\/\//, '') };
+  } catch {
+    // no filesystem (web harness, tests) — the caller records nothing
+    return null;
+  }
+}
+
 export class EphemeralClip {
   private uri: string | null = null;
   private deleted = false;

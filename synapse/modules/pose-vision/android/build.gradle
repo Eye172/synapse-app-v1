@@ -1,0 +1,35 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.posevision'
+version = '1.0.0'
+
+android {
+  namespace "expo.modules.posevision"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+  // The pose model is already a compressed archive; letting AAPT squeeze it
+  // again costs build time and, more to the point, MediaPipe memory-maps the
+  // asset and cannot read it if the packer has deflated it.
+  androidResources {
+    noCompress += ['task']
+  }
+}
+
+dependencies {
+  // CameraX: this module owns the camera, because the detector needs the
+  // frames and no Expo surface hands them out.
+  def camerax = "1.4.0"
+  implementation "androidx.camera:camera-core:$camerax"
+  implementation "androidx.camera:camera-camera2:$camerax"
+  implementation "androidx.camera:camera-lifecycle:$camerax"
+  implementation "androidx.camera:camera-view:$camerax"
+  implementation "androidx.camera:camera-video:$camerax"
+
+  // The same pose landmarker the web harness runs, in its Android build.
+  implementation "com.google.mediapipe:tasks-vision:0.10.14"
+}

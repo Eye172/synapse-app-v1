@@ -141,14 +141,117 @@ When LINKED the Rig is the instrument: five IMUs place the whole body, so it bot
 
 **Mount conventions are fixed on the phone, not in a rebuild.** Quaternion component order (`[r,i,j,k]` vs `[i,j,k,r]`) and which board axis runs along the segment are toggles in **Profile → HARDWARE → Sensor setup**, with live per-segment directions that turn green when the convention is right. A tester with an unknown firmware build converges in about twenty seconds.
 
-### Real camera pose (dev build)
+### Camera pose — how the body gets onto the person
 
-The Mesh's camera path ships behind a seam: `CameraPoseSource` + a `PoseDetector` registry. With no detector registered the camera reports unavailable and the app says so — it never invents tracking. To light it up on-device, install a pose landmarker (e.g. an MLKit pose module), then register it at startup:
+This is the path that measures a lifter with nothing strapped to them. It runs
+end to end on-device and no frame ever leaves the phone.
+
+**The flow, in the order the data moves:**
+
+| Stage | Where | What it does |
+|---|---|---|
+| 1. Frames | `modules/pose-vision` (Kotlin) | CameraX owns the camera: preview, frame analysis and recording off one session |
+| 2. Landmarks | `PoseEngine.kt` | MediaPipe Pose (LIVE_STREAM) → 33 points in **two spaces** per frame |
+| 3. Crossing | `src/sources/camera/poseVisionBridge.ts` | Flattened arrays → `PoseObservation`; the axis flips happen here and nowhere else |
+| 4. Seam | `src/sources/camera/PoseDetector.ts` | The registry the rest of the app asks; no registration = camera reports unavailable |
+| 5. Tracking | `src/vision/` | One Euro smoothing, bone lengths over frames, camera solved per frame |
+| 6. Drawing | `src/ui/bodyVolumes.ts`, `facets.ts` | Solids built in metres, projected back through the solved lens |
+
+**Why the camera is a native module and not `expo-camera`.** `expo-camera`
+renders a preview and hands its frames to nobody, and Android will not open one
+camera twice. A detector that needs pixels therefore has to *replace* the
+preview rather than sit beside it — which is why `PoseVisionView` also carries
+the recorder. On a build without the native module the screen falls back to
+`expo-camera` automatically: the lifter still sees themselves, the Rig path is
+untouched, and nothing places a body on them.
+
+**The two spaces, and why both.** Image landmarks say *where on screen* a joint
+appeared and carry no scale. World landmarks say *how big the body is*, in
+metres. Neither alone can put a mannequin on a person; together they recover the
+lens that took the frame. A detector that produces only image points sets
+`world: null`, and the overlay shows the figure from a chosen angle rather than
+pretending to place it.
+
+**The axis convention, which is the one thing easy to get silently wrong.**
+MediaPipe reports both spaces y-down, with z growing *away* from the lens. This
+app uses y-up and z *toward* the viewer in metric space. Both are flipped
+exactly once, in `observationFromNative` — and a sign error there does not
+crash, it quietly builds a body facing backwards. `poseVisionBridge.test.ts`
+pins it.
+
+**Changing the detector.** Swap the model by replacing
+`modules/pose-vision/android/src/main/assets/pose_landmarker_full.task` (keep
+the `noCompress` rule in `build.gradle` — MediaPipe memory-maps the asset and
+cannot read a deflated one). To use a different landmarker entirely, implement
+`PoseDetectorFactory` and register it instead:
 
 ```ts
-import { registerPoseDetector } from '@/src/sources/camera/CameraPoseSource';
-registerPoseDetector(myMlkitAdapter); // returns 33 landmarks; frames never leave the device
+import { registerPoseDetector } from '@/src/sources/camera/PoseDetector';
+registerPoseDetector(myFactory); // 33 landmarks; frames never leave the device
 ```
+
+**Trying it without a phone.** `harness/` and `live/` run the identical
+pipeline in a browser — the pages bundle the app's own modules, so what the
+browser draws is what the app would draw. `node harness/serve.js` replays
+clips and reference stills; `node live/serve.js` runs it off a laptop webcam.
+Neither has its own copy of the maths, which is the point.
+
+### Technique grading — the seam left open
+
+`src/technique/evaluator.ts` is where a lift gets judged, and it is deliberately
+the one part not built here. An evaluator receives the sensor frame, the
+exercise and the tracked body; it returns a severity per segment. It cannot
+reach into the renderer and can be replaced wholesale without touching drawing
+code.
+
+The shipped default is `StubEvaluator`, which computes nothing **and says so** —
+`computed: false`. The renderer keeps the figure neutral on that answer rather
+than reporting a clean lift it never checked. *No opinion* and *no faults* are
+different answers and the wearer is entitled to know which one they got.
+
+**What is already wired, so a new evaluator lights up on arrival:** return a
+`SegmentSeverity` (`0` clean … `1` a fault worth stopping for) and the colour
+follows automatically — `meshSeverityColor` lerps turquoise → amber → red
+continuously, per segment, and the stroke thickens at the top of the range. A
+part the app could not measure is faded instead of coloured (`solid.inferred`),
+so "we cannot see your back" never looks like "your back is rounding".
+
+### Diagnosing the Rig link
+
+The firmware sends to a fixed address, so the question is always whether this
+phone holds it. Connect → the live panel answers it directly.
+
+**Wire formats accepted** (`src/sources/udp/protocol.ts`), newest first:
+
+```
+v2-packed  {"back":[r,i,j,k], "leftArm":[…], …}   ← current firmware
+v2-named   {"back":{"a":false,"q":{"r":…,"i":…,"j":…,"k":…}}, …}
+v2-array   [{"a":false,"q":[r,i,j,k]}, …]          ← 5 entries, RIG_NODE_ORDER
+v1         {"v":1,"nodes":[{"id":"spine","q":[i,j,k,r]}],"batt":83}
+v0         {"angle":41.7,"alert":true}
+```
+
+**Per-node states on the Connect screen**, and what each one means:
+
+| State | Meaning | Where to look |
+|---|---|---|
+| `REPORTING` | orientation arriving and usable | — |
+| `NO FIX` | node is in the packet, quaternion is all zeroes | the IMU is powered but has not settled; seconds, or wiring |
+| `CORRUPT` | four finite numbers that are not a rotation | the sensor is reading garbage |
+| `ALERT` | firmware raised its own fault flag | the rig thinks the angle is bad |
+| `SILENT` | node never appears in any packet | that strap is not transmitting |
+
+**`NO FIX` on every node** is its own banner — *rig is streaming, none has a fix
+yet*. It is worth calling out because it used to be invisible: a packet whose
+quaternions were all zero was discarded as malformed, so a rig that was powered,
+associated and transmitting looked exactly like a rig that was switched off.
+A well-formed reading now survives as a fault even when its value is unusable;
+anything that is *not* four finite numbers is still rejected outright, so junk
+on an open UDP port cannot pass itself off as a sensor.
+
+Geometry never follows a faulted node — `rigBodyState` skips it exactly as it
+skips an absent one, because a segment placed from a zeroed quaternion would sit
+at the neutral pose and read as a limb held still.
 
 ### The Claude coach (optional)
 
@@ -171,11 +274,12 @@ synapse/
 │   ├── theme/ + ui/        # "Biometric HUD" tokens and component kit
 │   └── shims/              # metro shims (node:* → empty on native)
 ├── modules/rig-udp/        # local Expo module: the native UDP receiver (Kotlin, ~100 lines)
+├── modules/pose-vision/    # local Expo module: CameraX preview + MediaPipe pose + recorder (Kotlin)
 ├── scripts/                # asset generator, Rig packet emulator
 └── assets/                 # generated brand assets + the two lesson clips we can honestly label
 ```
 
-Verification: `npm run typecheck` · `npm test` (185 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+Verification: `npm run typecheck` · `npm test` (313 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
 
 ### Non-negotiables, enforced in code
 

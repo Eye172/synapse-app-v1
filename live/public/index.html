@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Synapse - live camera</title>
+<style>
+  :root { --bg:#06070B; --panel:#0E1219; --line:rgba(255,255,255,0.10); --hi:#EAF0EC; --mid:#99A2AE; --lo:#5A6472; --acid:#C8F03C; --bad:#FF3B5C; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--hi); font:13px/1.55 ui-monospace,Menlo,Consolas,monospace; }
+  header { padding:14px 20px; border-bottom:1px solid var(--line); display:flex; gap:18px; align-items:baseline; flex-wrap:wrap; }
+  h1 { font-size:14px; margin:0; letter-spacing:.16em; text-transform:uppercase; }
+  .sub { color:var(--lo); font-size:11px; letter-spacing:.09em; text-transform:uppercase; }
+  section { padding:18px 20px; }
+  h2 { font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--mid); margin:0 0 12px; }
+  .row { display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; }
+  .stack { position:relative; line-height:0; border:1px solid var(--line); background:#000; }
+  .stack video { display:block; max-width:100%; }
+  .stack canvas { position:absolute; inset:0; width:100%; height:100%; }
+  .mir video, .mir canvas { transform:scaleX(-1); }
+  .card { background:var(--panel); border:1px solid var(--line); padding:10px; }
+  .cap { font-size:10px; letter-spacing:.07em; text-transform:uppercase; color:var(--lo); margin-top:8px; line-height:1.7; }
+  .ok { color:var(--acid); } .bad { color:var(--bad); }
+  button, select { font:inherit; background:transparent; color:var(--acid); border:1px solid var(--acid); padding:6px 13px; cursor:pointer; }
+  select { color:var(--mid); border-color:var(--line); max-width:230px; }
+  button.off { color:var(--lo); border-color:var(--line); }
+  button:disabled { color:var(--lo); border-color:var(--line); cursor:default; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:12px; }
+  table { border-collapse:collapse; font-size:11px; width:100%; }
+  td,th { border:1px solid var(--line); padding:3px 8px; text-align:left; white-space:nowrap; }
+  th { color:var(--mid); font-weight:normal; text-transform:uppercase; letter-spacing:.07em; }
+  td.n { text-align:right; color:var(--hi); }
+  .note { color:var(--lo); font-size:11px; max-width:660px; line-height:1.75; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Synapse &middot; live camera</h1>
+  <span class="sub" id="status">idle</span>
+</header>
+
+<section>
+  <div class="bar">
+    <button id="startBtn">Start camera</button>
+    <button id="stopBtn" class="off" disabled>Stop</button>
+    <select id="cams" title="camera"></select>
+    <span style="width:10px"></span>
+    <span class="sub">style</span>
+    <button data-style="solid" class="sty">solid</button>
+    <button data-style="study" class="sty off">study</button>
+    <button data-style="contour" class="sty off">contour</button>
+    <span style="width:10px"></span>
+    <button id="rigidBtn">bone lock: on</button>
+    <button id="predBtn">prediction: on</button>
+    <button id="mirrorBtn">mirror: on</button>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="stack mir" id="stack" style="width:640px">
+        <video id="vid" muted playsinline></video>
+        <canvas id="ov"></canvas>
+      </div>
+      <div class="cap" id="vidcap">&mdash;</div>
+    </div>
+
+    <div class="card" style="min-width:270px">
+      <h2>Camera solved from the frame</h2>
+      <table id="cam"><tbody></tbody></table>
+      <div class="cap">Three unknowns recovered per frame from the metric skeleton and where it landed in the picture. Residual is how far the reprojection misses, in pixels.</div>
+    </div>
+
+    <div class="card" style="min-width:250px">
+      <h2>Body measured from you</h2>
+      <table id="prop"><tbody></tbody></table>
+      <div class="cap">Bone lengths accumulated over frames, then every thickness derived from them. Nothing here is a constant &mdash; stand back, turn side on, and watch confidence climb.</div>
+    </div>
+
+    <div class="card" style="min-width:230px">
+      <h2>Miss against the detector</h2>
+      <table id="err"><tbody></tbody></table>
+      <div class="cap">Where the placed mannequin&rsquo;s joints sit against where the detector says yours are. Read the percentage, not the pixels: ten pixels is nothing up close and a great deal across the room.</div>
+    </div>
+  </div>
+
+  <p class="note">
+    The detector runs at a fraction of the redraw rate on purpose, the way it would on a phone.
+    Between detections the pose is carried forward by its own velocity, with the filter&rsquo;s lag
+    taken back out &mdash; turn prediction off and the figure visibly drops behind you.
+    Mirroring flips the picture and the overlay together for comfort; the detector always sees the
+    true frame, so left stays left.
+  </p>
+</section>
+
+<script type="module">
+/**
+ * The app's vision pipeline, fed from this laptop's webcam.
+ *
+ * Nothing here reimplements anything. The page bundles the same modules the
+ * phone renders with and feeds them a live camera instead of a clip, so what
+ * the browser shows is what the app would draw on the same footage. The only
+ * code on this page that is not the app's is the plumbing: getting a stream,
+ * tracing polygons, and printing numbers.
+ */
+import {
+  buildBody, buildFacets, OVERLAY_STYLES,
+  PoseTracker, fitCamera, cameraProjector, identityViewport,
+} from './geometry.js';
+import { FilesetResolver, PoseLandmarker } from './vision_bundle.mjs';
+
+const statusEl = document.getElementById('status');
+const setStatus = (t) => { statusEl.textContent = t; };
+window.__live = { running:false };
+
+const vid = document.getElementById('vid');
+const ov = document.getElementById('ov');
+const octx = ov.getContext('2d');
+const stack = document.getElementById('stack');
+const vidcap = document.getElementById('vidcap');
+const camTable = document.querySelector('#cam tbody');
+const propTable = document.querySelector('#prop tbody');
+const errTable = document.querySelector('#err tbody');
+const camsSel = document.getElementById('cams');
+const startBtn = document.getElementById('startBtn');
+const stopBtn = document.getElementById('stopBtn');
+
+// ---------------------------------------------------------------------------
+// The only drawing code on this page. Every polygon, colour and line width
+// comes from the app's own buildFacets; this traces them and nothing else.
+// ---------------------------------------------------------------------------
+function paint(ctx, facets, w, h, scrim) {
+  ctx.clearRect(0, 0, w, h);
+  if (scrim > 0) { ctx.fillStyle = `rgba(6,7,11,${scrim})`; ctx.fillRect(0, 0, w, h); }
+  for (const f of facets) {
+    ctx.beginPath();
+    ctx.moveTo(f.pts[0].x, f.pts[0].y);
+    for (let i = 1; i < f.pts.length; i++) ctx.lineTo(f.pts[i].x, f.pts[i].y);
+    ctx.closePath();
+    if (f.fill) { ctx.fillStyle = f.fill; ctx.fill(); }
+    if (f.stroke) { ctx.strokeStyle = f.stroke; ctx.lineWidth = f.strokeWidth; ctx.lineJoin = 'round'; ctx.stroke(); }
+  }
+}
+
+/**
+ * MediaPipe reports both spaces. Image points are normalized, y down.
+ * World points are metres with the origin between the hips, y down and z
+ * growing away from the lens — this app has y up and z toward the viewer,
+ * so both are flipped exactly once, here.
+ */
+function toObservation(res, t, frame) {
+  const img = res.landmarks && res.landmarks[0];
+  const wld = res.worldLandmarks && res.worldLandmarks[0];
+  if (!img) return null;
+  const vis = (p) => (p.visibility === undefined ? 1 : p.visibility);
+  return {
+    t,
+    frame,
+    image: img.map((p) => ({ x:p.x, y:p.y, z:-(p.z||0), v:vis(p) })),
+    world: wld ? wld.map((p) => ({ x:p.x, y:-p.y, z:-(p.z||0), v:vis(p) })) : null,
+  };
+}
+
+/** The joints a body is judged by; fingers and face points are noise here. */
+const JOINTS = [11,12,13,14,15,16,23,24,25,26,27,28];
+
+/**
+ * How far the placed mannequin's joints sit from the detected ones.
+ *
+ * Deliberately not a measure of how well the figure covers a person-shaped
+ * blob: that number can always be improved by drawing a fatter figure.
+ */
+function jointError(pose, image, cam, frame) {
+  const proj = cameraProjector(cam, identityViewport(frame));
+  let sum = 0, n = 0;
+  for (const i of JOINTS) {
+    if (pose.world[i].v < 0.5) continue;
+    const p = proj.to2D(pose.world[i]);
+    if (!p.visible) continue;
+    sum += Math.hypot(p.x - image[i].x * frame.width, p.y - image[i].y * frame.height);
+    n++;
+  }
+  if (!n) return null;
+  const ys = image.map((p) => p.y);
+  const subjectPx = (Math.max(...ys) - Math.min(...ys)) * frame.height;
+  return {
+    px: sum / n,
+    pct: subjectPx ? (sum / n / subjectPx) * 100 : null,
+    subjectPx,
+    used: n,
+  };
+}
+
+const fmt = (v, d=2) => (v === null || v === undefined || !Number.isFinite(v) ? '—' : v.toFixed(d));
+function rows(el, pairs) {
+  el.innerHTML = pairs.map(([k, v]) => `<tr><th>${k}</th><td class="n">${v}</td></tr>`).join('');
+}
+
+// ---------------------------------------------------------------------------
+// state
+// ---------------------------------------------------------------------------
+let style = 'solid';
+let rigid = true;
+let predict = true;
+let mirror = true;
+let tracker = new PoseTracker({ rigid });
+let landmarker = null;
+let stream = null;
+let running = false;
+let lastCam = null;
+let lastErr = null;
+let lastDetectT = -1e9;
+let detectMs = 0;
+let detections = 0;
+let attempts = 0;
+let frames = 0;
+let fpsAt = performance.now();
+let fps = 0;
+let started = 0;
+
+/** The detector is given roughly 15 frames a second, like a phone. */
+const DETECT_PERIOD_MS = 66;
+
+async function loadModel() {
+  if (landmarker) return landmarker;
+  setStatus('loading pose model');
+  const fileset = await FilesetResolver.forVisionTasks('./wasm');
+  landmarker = await PoseLandmarker.createFromOptions(fileset, {
+    baseOptions: { modelAssetPath: './pose_landmarker_full.task' },
+    runningMode: 'VIDEO',
+    numPoses: 1,
+  });
+  return landmarker;
+}
+
+/**
+ * Device labels are blank until a stream has been granted once, so the list is
+ * refilled after starting rather than only on load.
+ */
+async function listCameras() {
+  if (!navigator.mediaDevices?.enumerateDevices) return;
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+  const keep = camsSel.value;
+  camsSel.innerHTML = devs
+    .map((d, i) => `<option value="${d.deviceId}">${d.label || 'camera ' + (i + 1)}</option>`)
+    .join('');
+  if (keep && devs.some((d) => d.deviceId === keep)) camsSel.value = keep;
+  if (!devs.length) camsSel.innerHTML = '<option>no camera found</option>';
+}
+
+async function start() {
+  if (running) return;
+  startBtn.disabled = true;
+  try {
+    await loadModel();
+    setStatus('asking for the camera');
+    const id = camsSel.value;
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: id ? { deviceId: { exact: id }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                : { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false,
+    });
+    vid.srcObject = stream;
+    await vid.play();
+    await listCameras();
+    tracker = new PoseTracker({ rigid });
+    lastCam = null; lastErr = null; lastDetectT = -1e9;
+    detections = 0; attempts = 0; started = performance.now();
+    running = true;
+    window.__live.running = true;
+    stopBtn.disabled = false;
+    stopBtn.classList.remove('off');
+    setStatus('running');
+    requestAnimationFrame(tick);
+  } catch (e) {
+    // A refused permission and an absent camera both land here, and the
+    // difference matters to whoever is looking at the page.
+    setStatus('camera unavailable — ' + (e && e.name ? e.name : e));
+    vidcap.innerHTML = `<span class="bad">${e && e.message ? e.message : e}</span>`;
+    startBtn.disabled = false;
+  }
+}
+
+function stop() {
+  running = false;
+  window.__live.running = false;
+  if (stream) for (const t of stream.getTracks()) t.stop();
+  stream = null;
+  vid.srcObject = null;
+  octx.clearRect(0, 0, ov.width, ov.height);
+  startBtn.disabled = false;
+  stopBtn.disabled = true;
+  stopBtn.classList.add('off');
+  setStatus('stopped');
+}
+
+function tick() {
+  if (!running) return;
+  requestAnimationFrame(tick);
+  if (!landmarker || vid.readyState < 2 || vid.videoWidth === 0) return;
+
+  if (ov.width !== vid.videoWidth) { ov.width = vid.videoWidth; ov.height = vid.videoHeight; }
+  const frame = { width: vid.videoWidth, height: vid.videoHeight };
+  // A live stream has no currentTime worth trusting; the wall clock is the
+  // timeline, and the detector only needs it to increase.
+  const t = performance.now() - started;
+
+  // feed the detector at its own slower rate, and redraw every frame
+  if (t - lastDetectT >= DETECT_PERIOD_MS) {
+    const t0 = performance.now();
+    let res = null;
+    try { res = landmarker.detectForVideo(vid, t); } catch (e) { /* frame not ready */ }
+    detectMs = performance.now() - t0;
+    lastDetectT = t;
+    attempts++;
+    const obs = res ? toObservation(res, t, frame) : null;
+    if (obs) {
+      detections++;
+      tracker.update(obs);
+      const posed = tracker.sample(t);
+      if (posed) {
+        const cam = fitCamera(posed.world, posed.image, frame);
+        if (cam) {
+          lastCam = cam;
+          lastErr = jointError(posed, obs.image, cam, frame);
+        }
+      }
+    }
+  }
+
+  frames++;
+  const now = performance.now();
+  if (now - fpsAt > 500) { fps = (frames * 1000) / (now - fpsAt); frames = 0; fpsAt = now; }
+
+  // draw for *now*, not for the last detection — this is where prediction earns its place
+  const pose = tracker.sample(predict ? t : lastDetectT);
+  const cfg = OVERLAY_STYLES[style];
+  if (!pose || !lastCam) {
+    octx.clearRect(0, 0, ov.width, ov.height);
+    vidcap.innerHTML = `${frame.width}&times;${frame.height} &middot; `
+      + `<span class="bad">nobody found</span> &middot; step back until your hips and knees are in shot`;
+    return;
+  }
+
+  const model = buildBody(pose.world, pose.proportions);
+  const proj = cameraProjector(lastCam, identityViewport(frame));
+  const facets = buildFacets(model.solids, proj, {}, {
+    fill: cfg.fill, edge: cfg.edge,
+    lineScale: Math.max(0.75, Math.min(frame.width, frame.height) / 420),
+    lightWith: null,
+  });
+  paint(octx, facets, ov.width, ov.height, cfg.scrim);
+
+  const p = pose.proportions;
+  vidcap.innerHTML = `${frame.width}&times;${frame.height} &middot; `
+    + `<span class="ok">${model.solids.length} solids, ${facets.length} faces</span> &middot; `
+    + `detector ${detectMs.toFixed(0)}ms &middot; ${fps.toFixed(0)} fps draw &middot; `
+    + `coverage ${(pose.coverage*100)|0}% &middot; carried ${pose.age.toFixed(0)}ms`;
+
+  rows(camTable, [
+    ['distance', fmt(lastCam.distance, 2) + ' m'],
+    ['off axis x', fmt(lastCam.tx, 3) + ' m'],
+    ['off axis y', fmt(lastCam.ty, 3) + ' m'],
+    ['focal', fmt(lastCam.focal, 0) + ' px'],
+    ['residual', fmt(lastCam.residual, 1) + ' px'],
+    ['points used', String(lastCam.used)],
+  ]);
+  rows(propTable, [
+    ['height', fmt(p.height, 2) + ' m'],
+    ['shoulders', fmt(p.shoulderWidth*100, 1) + ' cm'],
+    ['hips', fmt(p.hipWidth*100, 1) + ' cm'],
+    ['trunk', fmt(p.trunkLength*100, 1) + ' cm'],
+    ['upper arm', fmt(p.upperArm*100, 1) + ' cm'],
+    ['thigh', fmt(p.thigh*100, 1) + ' cm'],
+    ['shin', fmt(p.shin*100, 1) + ' cm'],
+    ['confidence', ((p.confidence*100)|0) + '%'],
+  ]);
+  rows(errTable, [
+    ['miss', lastErr ? fmt(lastErr.px, 1) + ' px' : '—'],
+    ['of your height', lastErr ? fmt(lastErr.pct, 2) + ' %' : '—'],
+    ['you, in frame', lastErr ? Math.round(lastErr.subjectPx) + ' px' : '—'],
+    ['joints scored', lastErr ? String(lastErr.used) : '—'],
+    ['detected', attempts ? `${((detections/attempts)*100)|0}% of ${attempts}` : '—'],
+  ]);
+
+  window.__live = {
+    running: true,
+    solids: model.solids.length, faces: facets.length,
+    distance: lastCam.distance, residual: lastCam.residual,
+    height: p.height, confidence: p.confidence,
+    coverage: pose.coverage, age: pose.age,
+    detectMs, fps, detections, attempts,
+    missPx: lastErr ? lastErr.px : null,
+    missPct: lastErr ? lastErr.pct : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// controls
+// ---------------------------------------------------------------------------
+startBtn.addEventListener('click', start);
+stopBtn.addEventListener('click', stop);
+camsSel.addEventListener('change', () => { if (running) { stop(); start(); } });
+
+for (const b of document.querySelectorAll('.sty')) {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.sty').forEach((x) => x.classList.add('off'));
+    b.classList.remove('off');
+    style = b.dataset.style;
+  });
+}
+document.getElementById('rigidBtn').addEventListener('click', (e) => {
+  rigid = !rigid;
+  e.target.textContent = 'bone lock: ' + (rigid ? 'on' : 'off');
+  e.target.classList.toggle('off', !rigid);
+  // the measured body is rebuilt with it, so the old one cannot be kept
+  tracker = new PoseTracker({ rigid });
+  lastDetectT = -1e9;
+});
+document.getElementById('predBtn').addEventListener('click', (e) => {
+  predict = !predict;
+  e.target.textContent = 'prediction: ' + (predict ? 'on' : 'off');
+  e.target.classList.toggle('off', !predict);
+});
+document.getElementById('mirrorBtn').addEventListener('click', (e) => {
+  mirror = !mirror;
+  e.target.textContent = 'mirror: ' + (mirror ? 'on' : 'off');
+  e.target.classList.toggle('off', !mirror);
+  stack.classList.toggle('mir', mirror);
+});
+
+window.addEventListener('beforeunload', stop);
+
+listCameras();
+setStatus('ready — press start');
+</script>
+</body>
+</html>

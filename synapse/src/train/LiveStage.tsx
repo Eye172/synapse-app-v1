@@ -31,9 +31,15 @@ import { useBodyTracking } from '@/src/vision/useBodyTracking';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
 
+import { getPoseVisionView, type PoseVisionViewRef } from '@/modules/pose-vision';
+import { publishNativePose, resetPoseVision } from '@/src/sources/camera/poseVisionBridge';
+
 import type { TrainConfig } from './ArmStage';
-import type { EphemeralClip } from './recording';
+import { nextClipTarget, type EphemeralClip } from './recording';
 import { useKeepAwakeSafe } from './useKeepAwakeSafe';
+
+/** How long to wait for the muxer to finalize a clip before giving up. */
+const FINALIZE_TIMEOUT_MS = 4000;
 
 export interface FaultMarker {
   tSec: number;
@@ -123,6 +129,20 @@ export function LiveStage({
   const [cameraFailed, setCameraFailed] = useState(false);
   const facing = useSettingsStore((s) => s.cameraFacing);
   const cameraRef = useRef<CameraView | null>(null);
+  const poseViewRef = useRef<PoseVisionViewRef | null>(null);
+  const pendingClipRef = useRef<{ uri: string; path: string } | null>(null);
+  const recordingSettledRef = useRef<(() => void) | null>(null);
+
+  /**
+   * The camera that also measures, when this build has it.
+   *
+   * Resolved once: it is a native component, and asking for it on a build
+   * without the module throws. When it is absent the screen falls back to the
+   * plain preview — the lifter still sees themselves and the Rig path is
+   * untouched, there is simply nothing placing a body on them.
+   */
+  const PoseVisionView = useMemo(() => getPoseVisionView(), []);
+  const tracksFromCamera = PoseVisionView !== null;
   const engineRef = useRef<SetEngine | null>(null);
   const markersRef = useRef<FaultMarker[]>([]);
   const lastMarkerAt = useRef<Record<string, number>>({});
@@ -143,6 +163,8 @@ export function LiveStage({
     startedAtRef.current = Date.now();
 
     sources.startSet();
+    // nothing from a previous set may count as a live pose on this one
+    resetPoseVision();
 
     // every cue schedules a dismissal; they are tracked so none of them can
     // fire into an unmounted screen
@@ -219,7 +241,27 @@ export function LiveStage({
 
   // ---- recording lifecycle ----
   const startRecording = async () => {
-    if (!recording || cameraRef.current === null || recState !== 'off') return;
+    if (!recording || recState !== 'off') return;
+
+    // The native camera writes to a path this side chooses, so the clip lands
+    // in the directory the stale-clip sweep already clears and no recording
+    // can outlive the session by taking a path nothing knows about.
+    if (tracksFromCamera) {
+      const target = await nextClipTarget();
+      if (target === null) return;
+      pendingClipRef.current = target;
+      setRecState('recording');
+      try {
+        await poseViewRef.current?.startRecording(target.path);
+      } catch (e) {
+        console.warn('[synapse] recording could not start', e);
+        pendingClipRef.current = null;
+        setRecState('off');
+      }
+      return;
+    }
+
+    if (cameraRef.current === null) return;
     try {
       setRecState('recording');
       const p = cameraRef.current
@@ -244,6 +286,27 @@ export function LiveStage({
   const stopRecording = async () => {
     if (recState !== 'recording') return;
     setRecState('stopping');
+
+    if (tracksFromCamera) {
+      // the file is not complete until the muxer says so, and Review would
+      // otherwise be handed a clip that stops partway through the set
+      const settled = new Promise<void>((resolve) => {
+        recordingSettledRef.current = resolve;
+      });
+      try {
+        await poseViewRef.current?.stopRecording();
+        await Promise.race([
+          settled,
+          new Promise<void>((resolve) => setTimeout(resolve, FINALIZE_TIMEOUT_MS)),
+        ]);
+      } catch {
+        // clip stays null — review will be skipped
+      } finally {
+        recordingSettledRef.current = null;
+      }
+      return;
+    }
+
     try {
       cameraRef.current?.stopRecording();
       await recordPromiseRef.current;
@@ -260,7 +323,8 @@ export function LiveStage({
         engineRef.current?.pause();
         setPaused(true);
         if (recState === 'recording') {
-          cameraRef.current?.stopRecording();
+          if (tracksFromCamera) void poseViewRef.current?.stopRecording();
+          else cameraRef.current?.stopRecording();
         }
         void clip.deleteNow();
       }
@@ -333,21 +397,59 @@ export function LiveStage({
           darkened so the graded segments stay readable over any gym. */}
       {cameraLive ? (
         <>
-          <CameraView
-            ref={cameraRef}
-            style={{ position: 'absolute', top: 0, left: 0, width, height }}
-            facing={facing}
-            mute
-            onCameraReady={() => {
-              setCameraReady(true);
-              if (recording) startRecording();
-            }}
-            onMountError={(e) => {
-              // another app holds the camera, or the device has none usable
-              console.warn('[synapse] camera unavailable, falling back to the void', e);
-              setCameraFailed(true);
-            }}
-          />
+          {PoseVisionView !== null ? (
+            /* Owns the camera outright — preview, detector and recorder off one
+               session, because Android will not open a camera twice and the
+               detector needs the frames the preview would otherwise keep. */
+            <PoseVisionView
+              ref={poseViewRef}
+              style={{ position: 'absolute', top: 0, left: 0, width, height }}
+              facing={facing}
+              detecting={!paused}
+              onPose={(e) => publishNativePose(e.nativeEvent)}
+              onStatus={(e) => {
+                if (e.nativeEvent.state === 'ready') {
+                  setCameraReady(true);
+                  if (recording) void startRecording();
+                } else {
+                  // the preview works, nothing is measuring behind it
+                  console.warn('[synapse] pose detector unavailable on this device');
+                  setCameraReady(true);
+                }
+              }}
+              onRecordingFinished={(e) => {
+                const target = pendingClipRef.current;
+                pendingClipRef.current = null;
+                if (target && e.nativeEvent.ok) {
+                  recordingUriRef.current = target.uri;
+                  clip.attach(target.uri);
+                }
+                setRecState('off');
+                recordingSettledRef.current?.();
+                recordingSettledRef.current = null;
+              }}
+              onCameraError={(e) => {
+                console.warn('[synapse] camera unavailable, falling back to the void', e.nativeEvent.message);
+                setCameraFailed(true);
+              }}
+            />
+          ) : (
+            <CameraView
+              ref={cameraRef}
+              style={{ position: 'absolute', top: 0, left: 0, width, height }}
+              facing={facing}
+              mute
+              onCameraReady={() => {
+                setCameraReady(true);
+                if (recording) startRecording();
+              }}
+              onMountError={(e) => {
+                // another app holds the camera, or the device has none usable
+                console.warn('[synapse] camera unavailable, falling back to the void', e);
+                setCameraFailed(true);
+              }}
+            />
+          )}
           <View
             style={{
               position: 'absolute',

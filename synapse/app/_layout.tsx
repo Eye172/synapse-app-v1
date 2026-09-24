@@ -11,6 +11,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { color } from '@/src/theme/tokens';
 import { useThemeMode } from '@/src/theme/useThemeMode';
 import { fontMap } from '@/src/theme/typography';
+import { installPoseVision } from '@/src/sources/camera/poseVisionBridge';
 import { watchRigConfig } from '@/src/sources/udp/rigConfig';
 import { purgeStaleClips } from '@/src/train/recording';
 
@@ -50,6 +51,11 @@ export default function RootLayout() {
 
   // the Rig's hardware conventions are user-adjustable; keep the engine synced
   useEffect(() => watchRigConfig(), []);
+
+  // Register the camera detector once, before anything asks whether a camera
+  // source exists. A build without the native module registers nothing and
+  // the camera keeps reporting unavailable.
+  useEffect(() => installPoseVision(), []);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {

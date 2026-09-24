@@ -42,26 +42,21 @@ export function registerPoseDetector(f: PoseDetectorFactory): void {
   registered = f;
 }
 
-/** Probe for a usable detector; null means the camera cannot place a body. */
+/**
+ * Probe for a usable detector; null means the camera cannot place a body.
+ *
+ * There is exactly one way to have a detector: register one. The app's own
+ * is `modules/pose-vision`, installed at startup by `installPoseVision()`;
+ * a build without that native module registers nothing and the camera
+ * reports unavailable, which is the honest answer rather than a preview that
+ * measures nothing.
+ */
 export function loadPoseDetector(): PoseDetector | null {
-  if (registered?.isAvailable()) {
-    try {
-      return registered.create();
-    } catch (e) {
-      console.warn('[synapse] registered pose detector failed to create', e);
-      return null;
-    }
-  }
-  // Known native integration: react-native-vision-camera plus a pose
-  // frame-processor plugin. Both are optional deps that only exist in a dev
-  // build, and the plugin has to be registered natively — without one there
-  // is no honest way to produce landmarks, so report unavailable.
+  if (!registered?.isAvailable()) return null;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const vc = require('react-native-vision-camera');
-    if (!vc?.Camera) return null;
-    return null;
-  } catch {
+    return registered.create();
+  } catch (e) {
+    console.warn('[synapse] registered pose detector failed to create', e);
     return null;
   }
 }

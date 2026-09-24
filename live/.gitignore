@@ -1,0 +1,10 @@
+# Bundled from the app's own sources; rebuild with esbuild in ../harness.
+public/geometry.js
+# The pose model and its runtime are vendored binaries, not source.
+public/pose_landmarker_full.task
+public/wasm/
+public/vision_bundle.mjs
+# Copies of clips that live elsewhere in the repo.
+public/clips/
+# Frames the page renders while it is being looked at.
+shots/
