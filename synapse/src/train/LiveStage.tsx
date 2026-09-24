@@ -428,6 +428,10 @@ export function LiveStage({
         <AppText variant="nano" color={color.textMid}>
           {[
             `MESH · ${MESH_SOURCE_LABEL[liveMeshSource]}`,
+            // whether the figure is standing on the lifter or still being
+            // solved — the one link in the camera path the camera's own
+            // telemetry cannot see
+            liveMeshSource === 'camera' ? (tracking.aligned ? 'BODY PLACED' : 'SOLVING') : null,
             cameraLive ? (cameraReady ? 'CAM LIVE' : 'CAM WAKING') : null,
             aiKey ? null : 'AI OFFLINE',
           ]

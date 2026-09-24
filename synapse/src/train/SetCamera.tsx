@@ -6,7 +6,9 @@ import { getPoseVisionView, type PoseVisionViewRef } from '@/modules/pose-vision
 import { publishDetectorState, publishNativePose } from '@/src/sources/camera/poseVisionBridge';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color } from '@/src/theme/tokens';
+import { AppText } from '@/src/ui/AppText';
 
+import type { CameraTelemetry, TelemetryLine } from './cameraTelemetry';
 import { ClipRecorder } from './clipRecorder';
 import { discardClipFile, nextClipTarget } from './recording';
 
@@ -53,13 +55,15 @@ export interface SetCameraProps {
   onState?: (state: SetCameraState) => void;
   /** the camera cannot be used at all; the caller falls back to the void */
   onFailed?: (reason: string) => void;
+  /** once a second: what the camera and detector are doing, for the screen */
+  onTelemetry?: (t: CameraTelemetry) => void;
 }
 
 /** How long a clip may take to finalize before it is given up on. */
 const FINALIZE_TIMEOUT_MS = 4000;
 
 export const SetCamera = forwardRef<SetCameraHandle, SetCameraProps>(function SetCamera(
-  { width, height, detecting, dim = true, onState, onFailed },
+  { width, height, detecting, dim = true, onState, onFailed, onTelemetry },
   ref,
 ) {
   const facing = useSettingsStore((s) => s.cameraFacing);
@@ -75,6 +79,32 @@ export const SetCamera = forwardRef<SetCameraHandle, SetCameraProps>(function Se
   onStateRef.current = onState;
   const onFailedRef = useRef(onFailed);
   onFailedRef.current = onFailed;
+  const onTelemetryRef = useRef(onTelemetry);
+  onTelemetryRef.current = onTelemetry;
+
+  // The camera's state as last reported, plus a count of the poses that came
+  // through in the current second. Sent up once a second rather than per
+  // frame: a screen that re-renders thirty times a second to print a number
+  // costs more than the number is worth.
+  const statusRef = useRef<Omit<CameraTelemetry, 'posesPerSec' | 'latencyMs'>>({
+    camera: 'starting',
+    detector: PoseVisionView !== null ? 'loading' : 'none',
+    detail: '',
+    canRecord: false,
+  });
+  const posesRef = useRef({ count: 0, latencySum: 0 });
+  useEffect(() => {
+    const id = setInterval(() => {
+      const { count, latencySum } = posesRef.current;
+      posesRef.current = { count: 0, latencySum: 0 };
+      onTelemetryRef.current?.({
+        ...statusRef.current,
+        posesPerSec: count,
+        latencyMs: count > 0 ? latencySum / count : null,
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   const recorder = useMemo(
     () =>
@@ -129,11 +159,16 @@ export const SetCamera = forwardRef<SetCameraHandle, SetCameraProps>(function Se
           style={{ width, height }}
           facing={facing}
           detecting={detecting}
-          onPose={(e) => publishNativePose(e.nativeEvent)}
+          onPose={(e) => {
+            posesRef.current.count += 1;
+            posesRef.current.latencySum += e.nativeEvent.latencyMs || 0;
+            publishNativePose(e.nativeEvent);
+          }}
           onStatus={(e) => {
             const s = e.nativeEvent;
             publishDetectorState(s.detector, s.detail);
             canRecordRef.current = s.canRecord;
+            statusRef.current = { camera: s.camera, detector: s.detector, detail: s.detail, canRecord: s.canRecord };
             if (s.camera === 'ready') {
               onStateRef.current?.({ ready: true, canRecord: s.canRecord, measures: s.detector !== 'unavailable' });
             }
@@ -146,6 +181,7 @@ export const SetCamera = forwardRef<SetCameraHandle, SetCameraProps>(function Se
               return;
             }
             console.warn('[synapse] camera unavailable, falling back to the void:', message);
+            statusRef.current = { ...statusRef.current, camera: 'failed', detail: message };
             onFailedRef.current?.(message);
           }}
         />
@@ -161,11 +197,13 @@ export const SetCamera = forwardRef<SetCameraHandle, SetCameraProps>(function Se
           mute
           onCameraReady={() => {
             canRecordRef.current = true;
+            statusRef.current = { camera: 'ready', detector: 'none', detail: '', canRecord: true };
             onStateRef.current?.({ ready: true, canRecord: true, measures: false });
           }}
           onMountError={(e) => {
             // another app holds the camera, or the device has none usable
             console.warn('[synapse] camera unavailable, falling back to the void', e);
+            statusRef.current = { ...statusRef.current, camera: 'failed', detail: e.message };
             onFailedRef.current?.(e.message);
           }}
         />
@@ -174,3 +212,18 @@ export const SetCamera = forwardRef<SetCameraHandle, SetCameraProps>(function Se
     </View>
   );
 });
+
+/**
+ * The telemetry line, pinned low where neither stage puts a control. Quiet
+ * when the path works, amber when a link in it does not — so a tester with no
+ * cable and no log can say which link.
+ */
+export function CameraTelemetryLine({ line }: { line: TelemetryLine }) {
+  return (
+    <View pointerEvents="none" style={{ position: 'absolute', left: 20, right: 20, bottom: 14 }}>
+      <AppText variant="nano" color={line.tone === 'warn' ? color.warn : color.textLo} numberOfLines={1}>
+        {line.text}
+      </AppText>
+    </View>
+  );
+}

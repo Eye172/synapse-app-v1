@@ -19,7 +19,8 @@ import { PositionStage } from '@/src/train/PositionStage';
 import { EphemeralClip } from '@/src/train/recording';
 import { ReportStage } from '@/src/train/ReportStage';
 import { ReviewStage } from '@/src/train/ReviewStage';
-import { SetCamera, type SetCameraHandle, type SetCameraState } from '@/src/train/SetCamera';
+import { NO_TELEMETRY, describeTelemetry, type CameraTelemetry } from '@/src/train/cameraTelemetry';
+import { CameraTelemetryLine, SetCamera, type SetCameraHandle, type SetCameraState } from '@/src/train/SetCamera';
 import { SelectStage } from '@/src/train/SelectStage';
 import { TutorialStage } from '@/src/train/TutorialStage';
 import { AppText } from '@/src/ui/AppText';
@@ -57,6 +58,10 @@ export default function TrainScreen() {
   const cameraRef = useRef<SetCameraHandle | null>(null);
   const [cameraState, setCameraState] = useState<SetCameraState>(NO_CAMERA);
   const [cameraFailed, setCameraFailed] = useState(false);
+  // kept here, not in the camera: a camera that fails is unmounted, and the
+  // line has to go on saying why after it is gone
+  const [cameraFailure, setCameraFailure] = useState('');
+  const [telemetry, setTelemetry] = useState<CameraTelemetry>(NO_TELEMETRY);
   const [result, setResult] = useState<LiveResult | null>(null);
   const [aiKey, setAiKeyState] = useState<string | null>(null);
 
@@ -88,6 +93,8 @@ export default function TrainScreen() {
     sourcesRef.current?.dispose();
     setCameraState(NO_CAMERA);
     setCameraFailed(false);
+    setCameraFailure('');
+    setTelemetry(NO_TELEMETRY);
     const sources = createSetSources(ex!, { camGranted });
     if (sources === null) {
       // nothing can measure this set — say so rather than inventing one
@@ -256,7 +263,11 @@ export default function TrainScreen() {
                     : next,
                 )
               }
-              onFailed={() => setCameraFailed(true)}
+              onFailed={(reason) => {
+                setCameraFailure(reason);
+                setCameraFailed(true);
+              }}
+              onTelemetry={setTelemetry}
             />
           ) : null}
           {/* Entering only. An exit animation keeps the outgoing stage mounted
@@ -266,6 +277,14 @@ export default function TrainScreen() {
           <Animated.View key={stage} entering={FadeIn.duration(220)} style={{ flex: 1 }}>
             {stageView}
           </Animated.View>
+          {(stage === 'position' || stage === 'live') && camGranted ? (
+            <CameraTelemetryLine
+              line={describeTelemetry(
+                cameraFailed ? { ...telemetry, camera: 'failed', detail: cameraFailure } : telemetry,
+                detecting,
+              )}
+            />
+          ) : null}
         </View>
       </View>
     </View>
