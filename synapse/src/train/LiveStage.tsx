@@ -28,7 +28,7 @@ import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
 import { MeshView3D } from '@/src/ui/MeshView3D';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
-import { useBodyTracking, type BodyTracking } from '@/src/vision/useBodyTracking';
+import { useBodyTracking } from '@/src/vision/useBodyTracking';
 import { coverViewport, landmarksToScreen } from '@/src/vision/viewport';
 
 import type { TrainConfig } from './ArmStage';
@@ -127,8 +127,10 @@ export function LiveStage({
 
   // Stable across renders on purpose: the tracker holds the body it has
   // measured, and resubscribing would reset it every time a rep ticked.
-  const poseRef = useRef(sources.pose);
-  poseRef.current = sources.pose;
+  // The camera tracker follows the camera, whichever source draws the body:
+  // beside a Rig it still measures the lifter for the technique evaluator.
+  const poseRef = useRef(sources.camera ?? sources.pose);
+  poseRef.current = sources.camera ?? sources.pose;
   const subscribePose = useMemo(
     () => (cb: (f: PoseFrame) => void) => poseRef.current.onPose(cb),
     [],
@@ -136,9 +138,6 @@ export function LiveStage({
 
   const facing = useSettingsStore((s) => s.cameraFacing);
   const recordingStartedRef = useRef(false);
-  // the engine outlives any one render, and hands the technique evaluator the
-  // tracked body as of the frame it is grading — so it reads it through a ref
-  const trackingRef = useRef<BodyTracking | null>(null);
   const engineRef = useRef<SetEngine | null>(null);
   const markersRef = useRef<FaultMarker[]>([]);
   const lastMarkerAt = useRef<Record<string, number>>({});
@@ -183,7 +182,6 @@ export function LiveStage({
       ownsSensor: sources.ownsSensor,
       calibration: sources.calibration,
       coach,
-      trackedPose: () => trackingRef.current?.pose ?? null,
       events: {
         onFrame: (f) => {
           setFrame(f);
@@ -355,7 +353,6 @@ export function LiveStage({
     mirrored: facing === 'front',
     paused,
   });
-  trackingRef.current = tracking;
 
   return (
     // The flow draws the camera behind this screen, so with one running the
@@ -371,8 +368,10 @@ export function LiveStage({
             compare the model with the person and an opaque figure would
             hide what it is commenting on.
 
-            With the Rig there is no picture to land on, so the same solids
-            are shown from a chosen angle instead.
+            With the Rig linked, the same overlay is drawn — the camera only
+            places the exoskeleton on the lifter, and every colour on it comes
+            from the Rig's grading. Without a solved camera the Rig's own
+            figure is shown from a chosen angle instead.
 
             And when the camera is running but the solve has not converged,
             the flat skeleton is drawn rather than a solid figure planted

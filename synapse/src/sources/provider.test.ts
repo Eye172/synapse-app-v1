@@ -65,6 +65,21 @@ describe('source selection in a release build', () => {
     bundle!.dispose();
   });
 
+  it('runs the camera beside a linked Rig, to show the body, not to grade it', () => {
+    (CameraPoseSource.available as jest.Mock).mockReturnValue(true);
+    useConnectionStore.setState({ mode: 'linked' });
+    const fakeRig = { onFrame: () => () => {}, onStatus: () => () => {}, status: 'active' };
+    (jest.spyOn(rigLink, 'active', 'get') as jest.SpyInstance).mockReturnValue(fakeRig);
+
+    const bundle = createSetSources(squat, { camGranted: true });
+    expect(bundle!.poseOrigin).toBe('rig');
+    // the camera places the exoskeleton on the picture; the Rig stays the pose
+    // source the engine grades from
+    expect(bundle!.camera).not.toBeNull();
+    expect(bundle!.camera).not.toBe(bundle!.pose);
+    bundle!.dispose();
+  });
+
   it('never produces a simulated body, whatever the inputs', () => {
     for (const camGranted of [false, true]) {
       for (const mode of ['offline', 'searching', 'linked'] as const) {

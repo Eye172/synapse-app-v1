@@ -6,7 +6,6 @@ import { SimSensorSource } from '@/src/sources/sim/SimSensorSource';
 import { SimTimeline, defaultFaultScript } from '@/src/sources/sim/simTimeline';
 
 import { setTechniqueEvaluator, StubEvaluator, type TechniqueInput } from '@/src/technique/evaluator';
-import type { TrackedPose } from '@/src/vision/tracker';
 
 import type { SafetyAlert } from './ruleEngine';
 import { SetEngine, type RepRecord } from './setSession';
@@ -187,7 +186,7 @@ describe('SetEngine — a camera pose is graded in one unit', () => {
 describe('SetEngine — the technique evaluator is actually wired in', () => {
   afterEach(() => setTechniqueEvaluator(new StubEvaluator()));
 
-  function harness(trackedPose: TrackedPose | null = null) {
+  function harness() {
     let emitPose: ((f: unknown) => void) | null = null;
     let emitSensor: ((f: unknown) => void) | null = null;
     const pose = {
@@ -222,7 +221,6 @@ describe('SetEngine — the technique evaluator is actually wired in', () => {
       sensorSource: sensor as never,
       ownsSensor: false,
       coach: new RuleCoach(),
-      trackedPose: () => trackedPose,
       events: { onFrame: (f) => frames.push(f as never) },
     });
     const landmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, v: 1 }));
@@ -275,8 +273,7 @@ describe('SetEngine — the technique evaluator is actually wired in', () => {
       },
       reset: () => {},
     });
-    const body = { t: 1, coverage: 1 } as unknown as TrackedPose;
-    const h = harness(body);
+    const h = harness();
     h.engine.start();
     h.sendSensor();
     h.sendPose();
@@ -284,7 +281,8 @@ describe('SetEngine — the technique evaluator is actually wired in', () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]!.sensor).toBe(h.rigFrame);
-    expect(seen[0]!.pose).toBe(body);
+    // the Rig alone judges: the camera's body never reaches the evaluator
+    expect('pose' in seen[0]!).toBe(false);
     expect(seen[0]!.exercise.id).toBe(SQUAT.id);
   });
 

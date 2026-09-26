@@ -122,10 +122,9 @@ export default function TrainScreen() {
   const showClose = stage !== 'live' && stage !== 'position';
 
   const cameraShown = (stage === 'position' || stage === 'live') && camGranted && !cameraFailed;
-  // only a set measured from the picture needs the detector; with the Rig
-  // drawing the body the camera is there to be looked at, and running the
-  // model behind it would cost battery for frames nobody uses
-  const detecting = sourcesRef.current?.poseOrigin === 'camera';
+  // the detector runs whenever the set has a camera source: on its own it
+  // draws the body, beside a Rig it only places the exoskeleton on the picture
+  const detecting = (sourcesRef.current?.camera ?? null) !== null;
 
   const summary: SetSummary | null = result?.summary ?? null;
   const markers: FaultMarker[] = result?.faultMarkers ?? [];

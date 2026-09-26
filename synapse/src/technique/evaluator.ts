@@ -1,6 +1,5 @@
 import type { RigBodyState } from '@/src/engine/rigBody';
 import { ALL_SEGMENTS, type ExerciseSpec, type SegmentId, type SensorFrame } from '@/src/engine/types';
-import type { TrackedPose } from '@/src/vision/tracker';
 
 /**
  * Where technique gets judged — and the one place it gets judged.
@@ -13,8 +12,10 @@ import type { TrackedPose } from '@/src/vision/tracker';
  * number in between was arrived at.
  *
  * That split is why the interface is this narrow. An evaluator gets the
- * sensor frame, the exercise being performed, and the tracked body for
- * context; it returns a severity per body segment. It cannot reach into the
+ * Rig's frame and the exercise being performed — the Rig alone judges; the
+ * camera never reaches this file. It returns a severity per body segment,
+ * and the renderer paints those onto whatever body is on screen: the
+ * exoskeleton over the camera picture, or the Rig's own figure. It cannot reach into the
  * renderer, it cannot hold UI state, and it can be replaced wholesale
  * without touching a line of drawing code.
  *
@@ -46,19 +47,28 @@ export interface TechniqueInput {
    * when no Rig is linked, or the frame carried no orientation.
    */
   rigBody: RigBodyState | null;
+}
+
+/** The one finding worth telling the lifter about. */
+export interface TechniqueFinding {
+  /** which part of the body it is about — that segment is where the chip points */
+  segment: SegmentId;
+  /** what is wrong, shown in the fault chip and on the Review timeline: "Knee caving in" */
+  label: string;
+  /** 0…1. From 0.55 it is shown and spoken (DRIFT); at 1 it is a FAULT, marked for Review */
+  severity: number;
   /**
-   * The body as the camera sees it — metric joints, measured proportions,
-   * how fast it is moving. Context, not the source of truth: the camera can
-   * say a knee is bent, the rig says whether it is bent wrongly.
+   * What to say out loud: a short instruction, a few words ("Knees out").
+   * Optional; without it the label is spoken.
    */
-  pose: TrackedPose | null;
+  cue?: string;
 }
 
 export interface TechniqueVerdict {
   /** what to tint, and how hard */
   segments: SegmentSeverity;
   /** the single finding worth showing, if any */
-  worst: { segment: SegmentId; label: string; severity: number } | null;
+  worst: TechniqueFinding | null;
   /**
    * False when this evaluator did not actually compute anything this frame.
    *
@@ -92,13 +102,15 @@ export const NO_VERDICT: TechniqueVerdict = {
  * Register an implementation through `setTechniqueEvaluator` and the whole
  * app starts grading from it. Nothing else needs to change:
  *
- *  - `SetEngine` calls it on every pose frame of a set, with the Rig's latest
- *    frame and the camera's tracked body, and resets it when a set starts;
+ *  - `SetEngine` calls it on every frame of a set with the Rig's latest
+ *    frame, and resets it when a set starts;
  *  - its segments are merged with the rule engine's — the worse of the two
  *    wins, per segment — and tint the body turquoise → amber → red;
  *  - its `worst` finding takes the live screen's fault chip whenever it is
- *    more severe than the rule engine's, and a finding at full severity is
- *    marked on the Review timeline.
+ *    more severe than the rule engine's, is spoken (its `cue`, or its label)
+ *    with a vibration through the same rate-limited coach that speaks the
+ *    rule engine's corrections, and at full severity is marked on the Review
+ *    timeline.
  *
  * "Checked and clean" and "not checked" stay different answers: while this
  * returns `computed: false`, the rule engine alone decides the colours.
@@ -113,9 +125,6 @@ export const NO_VERDICT: TechniqueVerdict = {
  *                        reading carries `fault` instead of `quat`
  *   input.rigBody        those five, calibrated: segment direction in body
  *                        coordinates and degrees from neutral
- *   input.pose.world     33 metric joints, hips at the origin, y up,
- *                        z toward the camera, already smoothed and held
- *                        to the wearer's measured bone lengths
  *   input.exercise.rules the tolerances declared for this lift
  *
  * What is expected back: a severity per segment, and the one finding worth
@@ -198,6 +207,8 @@ export function sanitizeVerdict(v: TechniqueVerdict | null | undefined, by = 'un
     const label = typeof v.worst.label === 'string' ? v.worst.label.trim() : '';
     if (sev !== null && label && KNOWN_SEGMENTS.has(v.worst.segment)) {
       worst = { segment: v.worst.segment, label, severity: sev };
+      const cue = typeof v.worst.cue === 'string' ? v.worst.cue.trim() : '';
+      if (cue) worst.cue = cue;
     }
   }
   return {

@@ -16,7 +16,15 @@ import type { PoseSource, SensorSource } from './types';
  * measure, there is no set. Nothing is substituted for a missing sensor.
  */
 export interface SourceBundle {
+  /** what draws the body and drives the engine */
   pose: PoseSource;
+  /**
+   * The camera's detector for this set. Beside a linked Rig it only places
+   * the exoskeleton on the lifter's picture — to show where the fault is —
+   * and never feeds grading: that comes from the Rig alone. Null when there
+   * is no camera or no detector.
+   */
+  camera: PoseSource | null;
   sensor: SensorSource | null;
   /** false when the sensor is the app-shared Rig link — the set must not stop it */
   ownsSensor: boolean;
@@ -66,6 +74,9 @@ export function createSetSources(
   let pose: PoseSource;
   let poseOrigin: SourceBundle['poseOrigin'];
   let rigPose: RigPoseSource | null = null;
+  let camera: PoseSource | null = null;
+  /** a camera that runs next to the Rig, owned (started and stopped) here */
+  let companionCamera: CameraPoseSource | null = null;
 
   if (rigLive) {
     // The exoskeleton draws its own body. Nothing stands in for it when it
@@ -74,9 +85,14 @@ export function createSetSources(
     rigPose = new RigPoseSource(rigLive, calibration);
     pose = rigPose;
     poseOrigin = 'rig';
+    if (cameraViable) {
+      companionCamera = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
+      camera = companionCamera;
+    }
   } else if (cameraViable) {
     pose = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
     poseOrigin = 'camera';
+    camera = pose;
   } else if (simPose) {
     pose = simPose;
     poseOrigin = 'sim';
@@ -90,6 +106,7 @@ export function createSetSources(
 
   return {
     pose,
+    camera,
     sensor,
     ownsSensor,
     calibration,
@@ -98,10 +115,13 @@ export function createSetSources(
     startSet() {
       // rep zero starts a beat after the live screen mounts
       timeline?.rebase(Date.now() + 400);
+      // the engine starts `pose`; a camera beside the Rig is started here
+      companionCamera?.start();
     },
     dispose() {
       pose.stop();
       rigPose?.stop();
+      companionCamera?.stop();
       simPose?.stop();
       simSensor?.stop();
       // the shared Rig link outlives the set on purpose

@@ -1,6 +1,7 @@
 import type { FrameGrade, SafetyAlert } from '@/src/engine/ruleEngine';
 import type { RepRecord, SetSummary } from '@/src/engine/setSession';
 import type { ExerciseSpec } from '@/src/engine/types';
+import type { TechniqueFinding } from '@/src/technique/evaluator';
 
 import { RuleCoach, buildRuleSummary } from './RuleCoach';
 import type { Coach, CoachCue } from './types';
@@ -116,6 +117,14 @@ export class LLMCoach implements Coach {
       worst: rep.worstRule?.name ?? null,
     });
     return null;
+  }
+
+  /**
+   * The evaluator's own words, verbatim: its author chose them for this
+   * finding, and Claude has no metric value here to phrase around.
+   */
+  techniqueFinding(finding: TechniqueFinding, now: number): CoachCue | null {
+    return this.rules.techniqueFinding(finding, now);
   }
 
   /** Safety never waits on a network. Deterministic, instant, verbatim. */

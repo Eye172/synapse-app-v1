@@ -35,7 +35,7 @@ function input(over: Partial<TechniqueInput> = {}): TechniqueInput {
       { id: 'rightArm', quat: [1, 0, 0, 0] },
     ],
   };
-  return { t: 1000, exercise: squat, sensor, rigBody: null, pose: null, ...over };
+  return { t: 1000, exercise: squat, sensor, rigBody: null, ...over };
 }
 
 describe('the default evaluator', () => {

@@ -1,6 +1,7 @@
 import type { FrameGrade, SafetyAlert } from '@/src/engine/ruleEngine';
 import type { RepRecord, SetSummary } from '@/src/engine/setSession';
 import type { ExerciseSpec } from '@/src/engine/types';
+import type { TechniqueFinding } from '@/src/technique/evaluator';
 
 import type { Coach, CoachCue } from './types';
 
@@ -27,21 +28,32 @@ export class RuleCoach implements Coach {
 
   liveGrade(grade: FrameGrade, now: number): CoachCue | null {
     const worst = grade.worstLive;
-    if (!worst || worst.severity === null || worst.severity < LIVE_SEVERITY_FLOOR) return null;
+    if (!worst || worst.severity === null) return null;
+    return this.correction(worst.rule.id, worst.rule.cue, worst.severity, now);
+  }
+
+  techniqueFinding(finding: TechniqueFinding, now: number): CoachCue | null {
+    const id = `technique:${finding.segment}:${finding.label}`;
+    return this.correction(id, finding.cue ?? finding.label, finding.severity, now);
+  }
+
+  /** One gate for every in-set correction, whichever grader found it. */
+  private correction(id: string, text: string, severity: number, now: number): CoachCue | null {
+    if (severity < LIVE_SEVERITY_FLOOR) return null;
     if (now - this.lastCueAt < LIVE_CUE_GAP_MS) return null;
 
-    const prev = this.lastRuleAt.get(worst.rule.id);
-    const escalated = prev !== undefined && prev.severity < 1 && worst.severity >= 1;
+    const prev = this.lastRuleAt.get(id);
+    const escalated = prev !== undefined && prev.severity < 1 && severity >= 1;
     if (prev && now - prev.at < SAME_RULE_GAP_MS && !escalated) return null;
 
     this.lastCueAt = now;
-    this.lastRuleAt.set(worst.rule.id, { at: now, severity: worst.severity });
+    this.lastRuleAt.set(id, { at: now, severity });
     return {
-      text: worst.rule.cue,
-      ruleId: worst.rule.id,
+      text,
+      ruleId: id,
       kind: 'correction',
       speak: true,
-      haptic: worst.severity >= 1 ? 'fault' : 'minor',
+      haptic: severity >= 1 ? 'fault' : 'minor',
       at: now,
     };
   }

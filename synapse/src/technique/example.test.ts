@@ -15,6 +15,7 @@
  * from −0.12 to +0.23 on that rep, and does not move at all on the others.
  */
 import { RuleCoach } from '@/src/coach/RuleCoach';
+import type { CoachCue } from '@/src/coach/types';
 import { EXERCISES } from '@/src/data/exercises';
 import type { EngineFrame } from '@/src/engine/setSession';
 import { SetEngine } from '@/src/engine/setSession';
@@ -74,7 +75,10 @@ class KneeTrackingExample implements TechniqueEvaluator {
       const severity = Math.max(0, Math.min(1, (inward - TOLERANCE) / RANGE));
       segments[thigh] = severity;
       segments[shin] = severity;
-      if (severity > (worst?.severity ?? 0)) worst = { segment: thigh, label: 'Knee caving in', severity };
+      if (severity > (worst?.severity ?? 0)) {
+        // label: what the chip shows; cue: what is said out loud (optional)
+        worst = { segment: thigh, label: 'Knee caving in', severity, cue: 'Push the knees out' };
+      }
     }
 
     return { segments, worst, computed: true, by: this.name };
@@ -93,18 +97,22 @@ function runSimulatedSet(seconds: number) {
   jest.setSystemTime(1_000_000);
   const timeline = new SimTimeline(SQUAT, { t0: Date.now(), fault: defaultFaultScript(SQUAT) });
   const frames: { rep: number; frame: EngineFrame }[] = [];
+  const cues: { rep: number; cue: CoachCue }[] = [];
 
   const engine = new SetEngine(SQUAT, {
     poseSource: new SimPoseSource(timeline, { wobble: 0 }),
     sensorSource: new SimSensorSource(timeline),
     coach: new RuleCoach(),
-    events: { onFrame: (f) => frames.push({ rep: timeline.at(f.t).repIndex, frame: f }) },
+    events: {
+      onFrame: (f) => frames.push({ rep: timeline.at(f.t).repIndex, frame: f }),
+      onCue: (c) => cues.push({ rep: timeline.at(c.at).repIndex, cue: c }),
+    },
   });
   engine.start();
   for (let t = 0; t < seconds * 1000; t += 33) jest.advanceTimersByTime(33);
   engine.stop();
   jest.useRealTimers();
-  return frames;
+  return Object.assign(frames, { cues });
 }
 
 /** The worst the evaluator said about the knees during each rep. */
@@ -142,6 +150,36 @@ describe('worked example: a knee-tracking evaluator on a simulated squat set', (
     const frames = runSimulatedSet(25);
     const labels = new Set(frames.map(({ frame }) => frame.technique.worst?.label).filter(Boolean));
     expect(labels).toEqual(new Set(['Knee caving in']));
+  });
+
+  it('says its cue out loud, with a vibration, through the same rate limit as the rules', () => {
+    // a finding the rule engine has no rule for, so only the evaluator can raise it
+    setTechniqueEvaluator({
+      name: 'grip',
+      ready: () => true,
+      evaluate: () => ({
+        segments: { leftForearm: 0.8 },
+        worst: { segment: 'leftForearm', label: 'Grip slipping', severity: 0.8, cue: 'Grip tighter' },
+        computed: true,
+        by: 'grip',
+      }),
+      reset: () => {},
+    });
+    const { cues } = runSimulatedSet(25);
+    const spoken = cues.filter(({ cue }) => cue.text === 'Grip tighter');
+    expect(spoken.length).toBeGreaterThan(0);
+    expect(spoken[0]!.cue.speak).toBe(true);
+    expect(spoken[0]!.cue.haptic).toBe('minor'); // DRIFT; a FAULT (severity 1) buzzes harder
+    // the same finding is not repeated every frame: at most once per 9 s
+    expect(spoken.length).toBeLessThanOrEqual(3);
+  });
+
+  it('leaves the voice to the rule engine when it has found the same thing at least as badly', () => {
+    setTechniqueEvaluator(new KneeTrackingExample());
+    const { cues } = runSimulatedSet(25);
+    // rep 3's caving knees are caught by both graders; one voice speaks
+    expect(cues.some(({ cue }) => cue.text === 'Knees out.')).toBe(true);
+    expect(cues.filter(({ cue }) => cue.at === cues[0]!.cue.at)).toHaveLength(1);
   });
 
   it('is judged on the calibrated rig body, not left to decode quaternions itself', () => {

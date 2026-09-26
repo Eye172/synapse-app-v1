@@ -1,6 +1,7 @@
 import type { FrameGrade, SafetyAlert } from '@/src/engine/ruleEngine';
 import type { RepRecord, SetSummary } from '@/src/engine/setSession';
 import type { ExerciseSpec } from '@/src/engine/types';
+import type { TechniqueFinding } from '@/src/technique/evaluator';
 
 /**
  * CoachProvider seam (§2.8). RuleCoach is always on and needs no network.
@@ -23,6 +24,12 @@ export interface Coach {
   /** called every graded frame; must be cheap; returns a cue at most every few seconds */
   liveGrade(grade: FrameGrade, now: number): CoachCue | null;
   repComplete(rep: RepRecord, now: number): CoachCue | null;
+  /**
+   * The technique evaluator's finding, in place of `liveGrade` on a frame
+   * where it is the worse of the two. Same eligibility and rate limit, so the
+   * lifter hears one voice, not two graders talking over each other.
+   */
+  techniqueFinding(finding: TechniqueFinding, now: number): CoachCue | null;
   safetyAlert(alert: SafetyAlert, now: number): CoachCue;
   /** end-of-set written summary + the one thing to fix next */
   setSummary(summary: SetSummary): Promise<{ text: string; source: 'rules' | 'llm' }>;

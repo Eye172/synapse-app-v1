@@ -13,7 +13,6 @@ import {
   type SegmentSeverity,
   type TechniqueVerdict,
 } from '@/src/technique/evaluator';
-import type { TrackedPose } from '@/src/vision/tracker';
 
 import { MetricFusion, type DataSourceLabel } from './fusion';
 import { isotropicLandmarks } from './geometry';
@@ -138,12 +137,6 @@ export class SetEngine {
       coach: Coach;
       events?: SetEngineEvents;
       now?: () => number;
-      /**
-       * The camera's tracked body for the technique evaluator, when the camera
-       * is running — smoothed, bone-locked and measured. The tracker lives with
-       * the screen that draws it, so it is read through this rather than owned.
-       */
-      trackedPose?: () => TrackedPose | null;
     },
   ) {
     this.counter = new RepCounter(ex.rep);
@@ -271,19 +264,24 @@ export class SetEngine {
       if (cue) this.io.events?.onCue?.(cue);
     }
 
-    // ---- live coaching (rate-limited inside the coach) ----
-    if (!grade.alert) {
-      const cue = this.io.coach.liveGrade(grade, t);
-      if (cue) this.io.events?.onCue?.(cue);
-    }
-
     const technique = evaluateTechnique({
       t,
       exercise: this.ex,
       sensor: this.lastSensor,
       rigBody: this.lastRigBody,
-      pose: this.io.trackedPose?.() ?? null,
     });
+
+    // ---- live coaching (rate-limited inside the coach) ----
+    // one voice per frame: whichever grader found the worse problem speaks
+    if (!grade.alert) {
+      const found = technique.computed ? technique.worst : null;
+      const ruleSeverity = grade.worstLive?.severity ?? 0;
+      const cue =
+        found && found.severity > ruleSeverity
+          ? this.io.coach.techniqueFinding(found, t)
+          : this.io.coach.liveGrade(grade, t);
+      if (cue) this.io.events?.onCue?.(cue);
+    }
 
     this.io.events?.onFrame?.({
       t,

@@ -1,9 +1,10 @@
 # Handoff — adding technique grading
 
-Guide for the developer who writes the part that turns Rig and camera data into
-a judgement of form. Everything around that part is already built and wired:
-data reaches you every frame, and what you return tints the body and raises
-warnings on screen.
+Guide for the developer who writes the part that turns the Rig's quaternions
+into a judgement of form: done right or wrong, and where. Everything around
+that part is already built and wired. The Rig's data reaches you every frame,
+and what you return colours the body on screen, shows a warning, speaks it and
+vibrates.
 
 ## 1. Get it running (10 minutes)
 
@@ -64,7 +65,18 @@ Put your implementation next to the seam, for example in
 | `input.exercise` | the lift being performed, with its rules and tolerances (`src/data/exercises.ts`) |
 | `input.sensor` | the Rig's latest raw frame, or `null` with no Rig: five nodes `back`, `leftArm`, `rightArm`, `leftLeg`, `rightLeg`, each with `quat: [r, i, j, k]` (scalar first, unit length). A node that has no fix yet carries `fault: 'zero' \| 'denormal'` instead of `quat`. It may also carry the firmware's own `alert` flag |
 | `input.rigBody` | **use this one**: the same frame put through the wearer's calibration. For each node, `dir` is the unit direction of that segment in body coordinates (x across, y up, z forward), and `deltaDeg` is how far it has rotated from the calibrated neutral stance |
-| `input.pose` | the camera's tracked body, or `null` when the camera is not the source: 33 metric joints (`world`, metres, hips at the origin, y up), smoothed and held to the wearer's measured bone lengths, plus `proportions` and `coverage` |
+
+**The Rig judges; the camera only shows.** The two are not connected, on
+purpose. Grading comes from the Rig's quaternions alone, and the camera never
+reaches the evaluator. When the phone's camera is on, it tracks the lifter
+only to draw the exoskeleton over their picture. Your severities colour that
+exoskeleton, so the lifter sees *where* the fault is, on their own body:
+
+| Situation | What is on screen | Where the colours come from |
+|---|---|---|
+| Rig linked + camera allowed | the exoskeleton over the camera picture | the Rig: rule engine + your evaluator |
+| Rig linked, no camera | the Rig's own 3D figure | the same |
+| camera only, no Rig | the exoskeleton over the camera picture | the rule engine on camera angles; your evaluator gets no Rig data and should return `computed: false` |
 
 The wire format the firmware sends today is
 `{"back":[r,i,j,k], "leftArm":[…], "leftLeg":[…], "rightArm":[…], "rightLeg":[…]}`.
@@ -75,7 +87,12 @@ It is parsed for you in `src/sources/udp/protocol.ts`.
 ```ts
 {
   segments: { leftThigh: 0.8, torso: 0.2 },   // 0 = clean … 1 = a fault worth stopping for
-  worst: { segment: 'leftThigh', label: 'Knee caving in', severity: 0.8 },  // or null
+  worst: {                                     // or null
+    segment: 'leftThigh',
+    label: 'Knee caving in',                   // shown in the chip and on the Review timeline
+    severity: 0.8,
+    cue: 'Push the knees out',                 // optional: said out loud; without it the label is
+  },
   computed: true,                              // false = "not checked", never "clean"
   by: 'my evaluator',
 }
@@ -88,6 +105,9 @@ What happens to it, already implemented:
 
 - Your severities are **merged** with the built-in rule engine's severities: for each segment the worse value wins. The result colours the body continuously, turquoise → amber → red (`meshSeverityColor`).
 - `worst` takes over the live screen's fault chip (DRIFT at ≥ 0.55, FAULT at ≥ 1) whenever it is worse than the rule engine's finding. At severity 1 it is also marked on the Review timeline.
+- `worst` is also **spoken with a vibration** (from 0.55; a harder buzz at 1), through the same coach that speaks the rule engine's corrections. It has the same limits: at most one correction every 4 s, and the same finding at most once every 9 s unless it gets worse. On a frame where both graders find something, the worse one speaks; on a tie the rule engine does. This is `techniqueFinding()` in `src/coach/RuleCoach.ts`.
+
+**What colour means, in one place:** `src/theme/tokens.ts` → `meshSeverityColor(s)`: turquoise at 0, amber around 0.5, red at 1. You only return numbers; the renderers (`BodyOverlay` on the camera, `MeshView3D` for the Rig) paint each segment from them. Segment ids and the joints each covers are in `src/engine/skeleton.ts`.
 - Your output is **sanitized** before it is used: severities are clamped to 0…1, NaN values and unknown segment ids are dropped, and a `worst` without a label is ignored. If your evaluator throws, the frame falls back to "not checked". A bug in grading can't crash the screen or paint a wrong colour.
 
 ## 5. The worked example — start here
@@ -96,7 +116,7 @@ What happens to it, already implemented:
 through the real `SetEngine` on a full simulated squat set. The simulator
 caves both knees in on rep 3 only. The example evaluator finds it on rep 3 and
 nowhere else, turns the thighs red, and puts "Knee caving in" in the fault chip.
-Copy its structure:
+A second test there shows a finding being spoken. Copy its structure:
 
 - `ready()` returns `input.rigBody !== null`
 - per-set state is learned from the first frame and cleared in `reset()`
