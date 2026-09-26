@@ -60,5 +60,3 @@ export const hudTint = {
     return color.frameBlue;
   },
 };
-
-export { color as hudColor };

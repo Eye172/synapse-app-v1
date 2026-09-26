@@ -12,20 +12,41 @@ import { parseRigPayload } from './protocol';
  * as untrusted; missing packets → SEARCHING, silence after activity → LOST
  * with auto-recovery; nothing here can crash the app (deal-breakers 5, 8).
  *
+ * The socket heals itself: a port that cannot be opened, or a socket the OS
+ * kills underneath us, is reopened with backoff. Before this, either one left
+ * a link that said SEARCHING while nothing was listening at all.
+ * `unavailable` is reserved for a build that has no receiver.
+ *
  * The receiver is `modules/rig-udp`, a local Expo module. It exists only in a
  * real build — on the web and in Expo Go this source reports `unavailable`
  * and the app says the link cannot be opened here.
  */
 
 export interface UdpSocketLike {
-  bind(port: number): void;
-  on(event: 'message', cb: (msg: Uint8Array | string, rinfo?: unknown) => void): void;
+  /** a returned promise resolves once the port is actually open */
+  bind(port: number): void | Promise<void>;
+  /** `from` is the sender's address — the Rig's place on the hotspot */
+  on(event: 'message', cb: (msg: Uint8Array | string, from?: string) => void): void;
   once?(event: 'error', cb: (e: unknown) => void): void;
   removeAllListeners?(event?: string): void;
   close(): void;
 }
 
 export type UdpSocketFactory = () => UdpSocketLike | null;
+
+/**
+ * The native module owns exactly one socket, and its `bind` and `close` are
+ * asynchronous. Without an order between them, a reopen could have the old
+ * adapter's `close` land after the new `bind` and silently shut the fresh
+ * socket — a link that looks alive and hears nothing. Every native call goes
+ * through this one chain, so they reach the native side in the order issued.
+ */
+let nativeQueue: Promise<unknown> = Promise.resolve();
+function queueNative(op: () => Promise<void>): Promise<void> {
+  const next = nativeQueue.then(op, op);
+  nativeQueue = next.catch(() => {});
+  return next;
+}
 
 /**
  * Adapts the native module to the node-flavoured socket shape this class was
@@ -54,10 +75,12 @@ function defaultSocketFactory(): UdpSocketLike | null {
 
   return {
     bind(port) {
-      native.bind(port).catch(raise);
+      const bound = queueNative(() => native.bind(port));
+      bound.catch(raise);
+      return bound;
     },
     on(_event, cb) {
-      subs.push(native.addListener('onMessage', ({ data }) => cb(data)));
+      subs.push(native.addListener('onMessage', ({ data, address }) => cb(data, address)));
     },
     once(_event, cb) {
       onError = cb;
@@ -74,7 +97,7 @@ function defaultSocketFactory(): UdpSocketLike | null {
       onError = null;
       // the native side is already gone if bind never succeeded; either way a
       // failed close must not surface as an unhandled rejection
-      native.close().catch(() => {});
+      queueNative(() => native.close()).catch(() => {});
     },
   };
 }
@@ -86,12 +109,19 @@ const MAX_PACKETS_PER_SEC = 120;
 const HZ_WINDOW_MAX = 200;
 const RAW_LOG_MAX = 12;
 const RAW_TEXT_MAX = 400;
+/**
+ * Waits before reopening a failed socket. The last one repeats for as long
+ * as the link is wanted — a port held by something else may free up later.
+ */
+const REOPEN_DELAYS_MS = [1000, 2000, 5000, 10000] as const;
 
 /** One packet as it came off the wire, with the parser's verdict. */
 export interface RawPacket {
   t: number;
   parsed: boolean;
   text: string;
+  /** sender's address, when the transport reports one */
+  from?: string;
 }
 
 export class UdpSensorSource implements SensorSource {
@@ -104,12 +134,19 @@ export class UdpSensorSource implements SensorSource {
   private lastFrameAt = 0;
   private lastFrameT = 0;
   private watchdog: ReturnType<typeof setInterval> | null = null;
+  /** true from start() to stop(), including while a failed socket waits to reopen */
+  private wanted = false;
+  private reopenTimer: ReturnType<typeof setTimeout> | null = null;
+  private reopenAttempt = 0;
   private hzWindow: number[] = [];
   private budgetStart = 0;
   private acceptedThisSecond = 0;
   private droppedThisSecond = 0;
   private rawLog: RawPacket[] = [];
   private rejectedCount = 0;
+  private receivedCount = 0;
+  private lastSenderAddr: string | null = null;
+  private socketError: string | null = null;
 
   constructor(
     private opts: {
@@ -139,28 +176,12 @@ export class UdpSensorSource implements SensorSource {
   }
 
   start(): void {
-    if (this.socket) return;
-    const factory = this.opts.socketFactory ?? defaultSocketFactory;
-    const socket = factory();
-    if (socket === null) {
-      this.setStatus('unavailable');
-      return;
-    }
-    this.socket = socket;
-    this.setStatus('searching');
-
-    try {
-      socket.once?.('error', (e) => {
-        console.warn('[synapse] rig socket error', e);
-        this.stop();
-        this.setStatus('unavailable');
-      });
-      socket.on('message', (msg) => this.onMessage(msg));
-      socket.bind(this.opts.port ?? RIG_UDP_PORT);
-    } catch (e) {
-      console.warn('[synapse] rig socket failed to bind', e);
-      this.socket = null;
-      this.setStatus('unavailable');
+    if (this.wanted) return;
+    // set first: a bind that fails synchronously must already see the link as
+    // wanted, or it would never be reopened
+    this.wanted = true;
+    if (!this.openSocket()) {
+      this.wanted = false;
       return;
     }
 
@@ -171,9 +192,100 @@ export class UdpSensorSource implements SensorSource {
     }, 800);
   }
 
+  /**
+   * Close and reopen the socket now. Called when the app comes back to the
+   * foreground: Android may have torn the socket down in the background
+   * without reporting anything, and a fresh bind costs nothing.
+   */
+  refresh(): void {
+    if (!this.wanted) return;
+    this.clearReopen();
+    this.closeSocket();
+    this.openSocket();
+  }
+
+  /**
+   * Returns false only when this build has no receiver at all; every other
+   * failure goes to the reopen path.
+   */
+  private openSocket(): boolean {
+    const factory = this.opts.socketFactory ?? defaultSocketFactory;
+    const socket = factory();
+    if (socket === null) {
+      this.setStatus('unavailable');
+      return false;
+    }
+    this.socket = socket;
+    // a reopen after the Rig was heard keeps saying LOST, not SEARCHING
+    if (this.status !== 'active' && this.status !== 'lost') this.setStatus('searching');
+
+    try {
+      socket.once?.('error', (e) => this.onSocketFailure(socket, e));
+      socket.on('message', (msg, from) => this.onMessage(msg, from));
+      const bound = socket.bind(this.opts.port ?? RIG_UDP_PORT);
+      // listening again is what clears the error — not a packet, which a Rig
+      // that is switched off will never send
+      bound?.then(
+        () => {
+          if (socket === this.socket) this.socketError = null;
+        },
+        () => {}, // failures arrive through the 'error' path
+      );
+    } catch (e) {
+      this.onSocketFailure(socket, e);
+    }
+    return true;
+  }
+
+  private onSocketFailure(socket: UdpSocketLike, e: unknown): void {
+    // a late error from a socket that has already been replaced is history
+    if (socket !== this.socket) return;
+    console.warn('[synapse] rig socket failed, reopening', e);
+    this.socketError = e instanceof Error ? e.message : String(e);
+    this.closeSocket();
+    if (this.status === 'active') this.setStatus('lost');
+    this.scheduleReopen();
+  }
+
+  private scheduleReopen(): void {
+    if (!this.wanted || this.reopenTimer) return;
+    const delay = REOPEN_DELAYS_MS[Math.min(this.reopenAttempt, REOPEN_DELAYS_MS.length - 1)];
+    this.reopenAttempt += 1;
+    this.reopenTimer = setTimeout(() => {
+      this.reopenTimer = null;
+      if (this.wanted && this.socket === null) this.openSocket();
+    }, delay);
+  }
+
+  private clearReopen(): void {
+    if (this.reopenTimer) clearTimeout(this.reopenTimer);
+    this.reopenTimer = null;
+  }
+
+  private closeSocket(): void {
+    const socket = this.socket;
+    this.socket = null;
+    if (!socket) return;
+    try {
+      // drop handlers before closing so a late packet can't reach a
+      // half-torn-down source
+      socket.removeAllListeners?.('message');
+      socket.removeAllListeners?.('error');
+      socket.close();
+    } catch {
+      // socket may already be gone
+    }
+  }
+
   /** exposed for tests */
-  onMessage(msg: Uint8Array | string): void {
+  onMessage(msg: Uint8Array | string, from?: string): void {
     const now = this.now();
+
+    // anything arriving at all proves the socket is healthy
+    this.receivedCount += 1;
+    if (from) this.lastSenderAddr = from;
+    this.reopenAttempt = 0;
+    this.socketError = null;
 
     // An open UDP port accepts traffic from anything on the same network, so
     // the intake is rate-limited before any work happens. A real Rig sends at
@@ -200,7 +312,7 @@ export class UdpSensorSource implements SensorSource {
     // arrives but does not parse is otherwise invisible — this is the
     // difference between "the rig is silent" and "the rig is talking and we
     // don't understand it", which are completely different problems in a gym.
-    this.recordRaw(msg, frame !== null, now);
+    this.recordRaw(msg, frame !== null, now, from);
 
     if (frame === null) return; // malformed → drop, never crash
     // out-of-order guard: keep the newest only
@@ -214,21 +326,12 @@ export class UdpSensorSource implements SensorSource {
   }
 
   stop(): void {
+    this.wanted = false;
     if (this.watchdog) clearInterval(this.watchdog);
     this.watchdog = null;
-    const socket = this.socket;
-    this.socket = null;
-    if (socket) {
-      try {
-        // drop handlers before closing so a late packet can't reach a
-        // half-torn-down source
-        socket.removeAllListeners?.('message');
-        socket.removeAllListeners?.('error');
-        socket.close();
-      } catch {
-        // socket may already be gone
-      }
-    }
+    this.clearReopen();
+    this.reopenAttempt = 0;
+    this.closeSocket();
     this.hzWindow.length = 0;
     this.lastFrameT = 0;
     this.setStatus('idle');
@@ -244,7 +347,22 @@ export class UdpSensorSource implements SensorSource {
     return this.rejectedCount;
   }
 
-  private recordRaw(msg: Uint8Array | string, parsed: boolean, now: number): void {
+  /** Every datagram that reached the socket, understood or not. */
+  get received(): number {
+    return this.receivedCount;
+  }
+
+  /** The address the last datagram came from — the Rig's place on the hotspot. */
+  get lastSender(): string | null {
+    return this.lastSenderAddr;
+  }
+
+  /** Why the socket last failed while it waits to reopen; null when healthy. */
+  get error(): string | null {
+    return this.socketError;
+  }
+
+  private recordRaw(msg: Uint8Array | string, parsed: boolean, now: number, from?: string): void {
     if (!parsed) this.rejectedCount += 1;
     let text: string;
     try {
@@ -252,7 +370,7 @@ export class UdpSensorSource implements SensorSource {
     } catch {
       text = `<${typeof msg === 'string' ? msg.length : msg.byteLength} undecodable bytes>`;
     }
-    this.rawLog.unshift({ t: now, parsed, text: text.slice(0, RAW_TEXT_MAX) });
+    this.rawLog.unshift({ t: now, parsed, text: text.slice(0, RAW_TEXT_MAX), from });
     if (this.rawLog.length > RAW_LOG_MAX) this.rawLog.length = RAW_LOG_MAX;
   }
 

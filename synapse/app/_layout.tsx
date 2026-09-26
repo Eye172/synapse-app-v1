@@ -13,6 +13,7 @@ import { useThemeMode } from '@/src/theme/useThemeMode';
 import { fontMap } from '@/src/theme/typography';
 import { installPoseVision } from '@/src/sources/camera/poseVisionBridge';
 import { watchRigConfig } from '@/src/sources/udp/rigConfig';
+import { rigLink } from '@/src/sources/udp/rigLink';
 import { purgeStaleClips } from '@/src/train/recording';
 
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -51,6 +52,9 @@ export default function RootLayout() {
 
   // the Rig's hardware conventions are user-adjustable; keep the engine synced
   useEffect(() => watchRigConfig(), []);
+
+  // a Rig this phone has calibrated before links as soon as it powers on
+  useEffect(() => rigLink.autoStart(), []);
 
   // Register the camera detector once, before anything asks whether a camera
   // source exists. A build without the native module registers nothing and

@@ -4,6 +4,7 @@ import { Linking, ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getAiKey, setAiKey, verifyAiKey } from '@/src/coach/aiKeyStore';
+import { calibratedNodeCount } from '@/src/sources/udp/rigLink';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, radius, space } from '@/src/theme/tokens';
@@ -62,7 +63,7 @@ function KitSection({ onConnect }: { onConnect: () => void }) {
   const rigName = useConnectionStore((s) => s.rigName);
   const mode = useConnectionStore((s) => s.mode);
   const battery = useConnectionStore((s) => s.battery);
-  const calNodes = useSettingsStore((s) => Object.keys(s.rigCalibration).length);
+  const calNodes = useSettingsStore(calibratedNodeCount);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(rigName);
 

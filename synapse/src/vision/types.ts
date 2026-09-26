@@ -31,16 +31,3 @@ export interface PoseObservation {
   /** pixel size of the frame, which fixes the aspect the fit works in */
   frame: FrameSize;
 }
-
-/**
- * A detector's contract. Frames go in on the native side and only points
- * come out — there is deliberately no way for an image to leave through
- * this interface.
- */
-export interface PoseEngine {
-  readonly name: string;
-  /** true once the model is loaded and the first frame can be fed */
-  readonly ready: boolean;
-  detect(t: number): PoseObservation | null;
-  dispose(): void;
-}

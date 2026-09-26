@@ -1,19 +1,30 @@
+import { AppState, type NativeEventSubscription } from 'react-native';
+
 import { CalibrationCollector, RigCalibration } from '@/src/engine/rigBody';
 import type { SensorFrame } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
-import { useSettingsStore } from '@/src/store/settingsStore';
+import { useSettingsStore, type SettingsState } from '@/src/store/settingsStore';
 
 import { UdpSensorSource } from './UdpSensorSource';
 
+const NO_NODES = { nodeCount: 0, nodesHeard: 0, hz: 0 } as const;
+const IDLE_LINK = { ...NO_NODES, mode: 'offline', linkError: null } as const;
+
 /**
  * The app-wide Rig link: one UDP listener whose state feeds the connection
- * chip, the Connect wizard and (when LINKED) the live set. Started from the
- * Connect screen; keeps running while linked so the chip stays truthful.
+ * chip, the Connect wizard and (when LINKED) the live set.
+ *
+ * Started from the Connect screen, or at launch for a Rig that has been
+ * calibrated before (`autoStart`) — the wearer powers the Rig on and the chip
+ * goes LINKED without anyone opening a screen. Once started it keeps
+ * listening until `stop()`: an idle socket costs nothing, and a link that
+ * quietly closes behind the user is the one that "never connects".
  */
 class RigLinkManager {
   private source: UdpSensorSource | null = null;
   private unsubs: (() => void)[] = [];
   private chipTimer: ReturnType<typeof setInterval> | null = null;
+  private appState: NativeEventSubscription | null = null;
 
   get active(): UdpSensorSource | null {
     return this.source;
@@ -21,6 +32,29 @@ class RigLinkManager {
 
   available(): boolean {
     return UdpSensorSource.available();
+  }
+
+  /**
+   * Start listening at launch if this phone has worked with a Rig before.
+   * A phone that never calibrated one opens no socket until asked. Settings
+   * load asynchronously, so this waits for them; returns the unsubscribe.
+   */
+  autoStart(): () => void {
+    const tryStart = () => {
+      if (hasStoredCalibration()) this.start();
+    };
+    // start() is idempotent, so trying now and again after hydration is safe
+    tryStart();
+    return useSettingsStore.persist.onFinishHydration(tryStart);
+  }
+
+  /**
+   * A screen that started the link is done with it. Keeps listening if the
+   * Rig linked or this phone has a calibrated Rig — that one should link the
+   * moment it powers on. Only a first visit that heard nothing closes it.
+   */
+  release(): void {
+    if (useConnectionStore.getState().mode !== 'linked' && !hasStoredCalibration()) this.stop();
   }
 
   start(): UdpSensorSource | null {
@@ -34,12 +68,10 @@ class RigLinkManager {
     this.unsubs.push(
       src.onStatus((s) => {
         const store = useConnectionStore.getState();
-        if (s === 'searching') store.set({ mode: 'searching', nodeCount: 0, nodesHeard: 0, hz: 0 });
+        if (s === 'searching') store.set({ ...NO_NODES, mode: 'searching' });
         else if (s === 'active') store.set({ mode: 'linked' });
         else if (s === 'lost') store.set({ mode: 'searching' });
-        else if (s === 'unavailable' || s === 'idle') {
-          store.set({ mode: 'offline', nodeCount: 0, nodesHeard: 0, hz: 0 });
-        }
+        else if (s === 'unavailable' || s === 'idle') store.set(IDLE_LINK);
       }),
       src.onFrame((f: SensorFrame) => {
         const store = useConnectionStore.getState();
@@ -53,11 +85,27 @@ class RigLinkManager {
         });
       }),
     );
-    // hz ticker for the chip
+    // once a second: rate for the chip, and the socket's own diagnostics —
+    // polled rather than pushed so a 10 Hz stream does not re-render screens,
+    // and written only when something moved
     this.chipTimer = setInterval(() => {
       const store = useConnectionStore.getState();
-      if (store.mode === 'linked') store.set({ hz: src.hz });
+      const next = {
+        hz: store.mode === 'linked' ? src.hz : 0,
+        packets: src.received,
+        rejected: src.rejected,
+        lastSender: src.lastSender,
+        linkError: src.error,
+      };
+      const changed = (Object.keys(next) as (keyof typeof next)[]).some((k) => store[k] !== next[k]);
+      if (changed) store.set(next);
     }, 1000);
+
+    // Android can drop a background app's socket without a word; coming back
+    // to the foreground reopens it unless the Rig is visibly streaming.
+    this.appState = AppState.addEventListener('change', (next) => {
+      if (next === 'active' && src.status !== 'active') src.refresh();
+    });
 
     src.start();
     return src;
@@ -68,13 +116,25 @@ class RigLinkManager {
     this.unsubs = [];
     if (this.chipTimer) clearInterval(this.chipTimer);
     this.chipTimer = null;
+    this.appState?.remove();
+    this.appState = null;
     this.source?.stop();
     this.source = null;
-    useConnectionStore.getState().set({ mode: 'offline', nodeCount: 0, nodesHeard: 0, hz: 0 });
+    useConnectionStore.getState().set(IDLE_LINK);
   }
 }
 
 export const rigLink = new RigLinkManager();
+
+/** How many Rig nodes have a stored neutral reference — a settings selector. */
+export function calibratedNodeCount(s: Pick<SettingsState, 'rigCalibration'>): number {
+  return Object.keys(s.rigCalibration).length;
+}
+
+/** Has this phone been calibrated against a Rig before? */
+export function hasStoredCalibration(): boolean {
+  return calibratedNodeCount(useSettingsStore.getState()) > 0;
+}
 
 /**
  * Calibration (§2.9): hold a neutral stance while every node's orientation is

@@ -177,8 +177,6 @@ export const track = {
   display: -0.5,
 } as const;
 
-export type SeverityColor = typeof color.ok | typeof color.warn | typeof color.error;
-
 /** Continuous severity (0 ok … 1 error) → color. Lerps ok→warn→error. */
 export function severityColor(s: number): string {
   const clamp = Math.max(0, Math.min(1, s));

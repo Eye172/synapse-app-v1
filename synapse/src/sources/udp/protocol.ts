@@ -43,17 +43,13 @@ const MAX_ARRAY_ENTRIES = 16;
 const QUAT_NORM_MIN = 0.5;
 const QUAT_NORM_MAX = 2;
 
-/**
- * Component order of the compact `q` array. The firmware's named form lists
- * its fields as (r, i, j, k), so the packed form follows that same order.
- * If a future firmware packs scalar-last, flip this one constant.
- */
-export const V2_QUAT_ORDER = ['r', 'i', 'j', 'k'] as const;
 /** The v1 payload in the original brief packed the scalar last. */
 const V1_QUAT_SCALAR_LAST = true;
 
 /**
- * Runtime override for the compact form's component order. Firmware that
+ * Component order of the packed forms. The firmware's named form lists its
+ * fields as (r, i, j, k), so packed arrays default to that same scalar-first
+ * order. Firmware that
  * packs the scalar last flips this from the Sensor setup screen — no rebuild,
  * which matters when the only person holding the hardware is in a gym.
  * Named quaternions (`{r,i,j,k}`) are unambiguous and ignore it.
@@ -62,10 +58,6 @@ let v2ScalarLast = false;
 
 export function setV2QuatScalarLast(scalarLast: boolean): void {
   v2ScalarLast = scalarLast;
-}
-
-export function getV2QuatScalarLast(): boolean {
-  return v2ScalarLast;
 }
 
 function finite(n: unknown): n is number {

@@ -9,7 +9,25 @@ This repository contains the **Rig companion app** — a real, screen-recordable
 
 ---
 
+> **New to the code?** Read in this order: [Quick start](#quick-start-for-a-developer) → [Architecture](#architecture--how-the-code-is-organised) → [Libraries](#libraries-and-what-each-one-is-for) → [Key constants](#key-constants--where-each-number-lives) → [How to change things](#how-to-change-things).
+>
 > **Adding technique grading?** Start with [`HANDOFF.md`](HANDOFF.md): the seam, the data it receives, what to return, and a worked example that runs in the test suite.
+
+## Quick start for a developer
+
+```bash
+git clone https://github.com/Eye172/synapse-app-v1.git
+cd synapse-app-v1/synapse
+npm install
+npm run typecheck      # tsc strict — must be clean
+npm test               # jest, ~390 tests — must be green
+npx expo start --offline --max-workers 1   # dev server; press w for the browser preview
+```
+
+Every screen renders in the browser preview. The Rig receiver and the camera
+detector are native modules and exist only in an Android build — see
+[Build the APK locally](#build-the-apk-locally). In a dev build (`__DEV__`) the
+simulator stands in for both, so the full training loop runs without hardware.
 
 ## There is no demo mode
 
@@ -17,7 +35,7 @@ Synapse grades what its sensors can actually see. If neither the Rig nor the cam
 
 This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
 
-A simulator does exist — it drives the 185-test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
+A simulator does exist — it drives the test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
 
 ### Run it
 
@@ -89,7 +107,7 @@ Two traps, both of which fail with a message that points somewhere else:
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup, dark + paper themes | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by 185 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps — including what the solid Mesh costs per frame, which is the one number that decides whether it ships as the default. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by ~390 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps — including what the solid Mesh costs per frame, which is the one number that decides whether it ships as the default. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
@@ -295,6 +313,32 @@ What is already wired, so a real evaluator lights up on arrival: `SetEngine` cal
 The firmware sends to a fixed address, so the question is always whether this
 phone holds it. Connect → the live panel answers it directly.
 
+**How the link lives** (`src/sources/udp/`):
+
+| Piece | Job |
+|---|---|
+| `modules/rig-udp` (Kotlin) | one receive-only UDP socket on `:1234`; `bind`, `close`, `addresses()`; events `onMessage {data, address, port}` and `onError` |
+| `UdpSensorSource.ts` | owns the socket: rate cap, parse, `searching → active → lost` state, raw packet log. **Self-healing:** a bind that fails or a socket the OS kills is reopened after 1 s, 2 s, 5 s, then every 10 s, until `stop()`. `unavailable` means only "this build has no receiver" |
+| `rigLink.ts` | the one app-wide link: `start()` / `stop()` / `release()` / `autoStart()`, calibration, and the 1 s ticker that copies rate and diagnostics into `connectionStore` |
+| `connectionStore.ts` | what screens read: `mode`, `nodeCount` (reading), `nodesHeard`, `hz`, `battery`, `packets`, `rejected`, `lastSender`, `linkError` |
+
+When the link runs:
+
+- **At launch**, if this phone has a stored calibration (`rigLink.autoStart()` in `app/_layout.tsx`). The chip goes LINKED as soon as the Rig powers up, with no screen opened.
+- **From the Connect screen.** Leaving the screen calls `rigLink.release()`. That keeps the link open if the Rig linked or has been calibrated before. Otherwise it closes.
+- **Coming back to the foreground** reopens the socket unless the Rig is streaming right now. Android can drop a background app's socket without reporting it.
+- **DISCONNECT** closes the link until the next launch.
+
+Native `bind`/`close` calls go through one promise chain (`queueNative`) and run under a lock in Kotlin. Without the chain, a reopen could have the old socket's `close` land after the new `bind` and silently shut it.
+
+**Lines the Connect screen adds to the live panel:**
+
+| Line | Meaning |
+|---|---|
+| `⚠ N PACKETS ARRIVED · NONE COULD BE READ` | the Rig is talking, in a format the parser rejects. Open **Sensor setup** to see the raw text |
+| `⚠ CANNOT LISTEN ON :1234 · … · RETRYING` | the socket could not open, for example because another app holds the port. It retries by itself |
+| `LAST PACKET FROM 192.168.43.x` | the Rig's own address on the hotspot, which proves it joined |
+
 **Wire formats accepted** (`src/sources/udp/protocol.ts`), newest first:
 
 ```
@@ -415,7 +459,76 @@ npx expo export --platform android   # proves the JS bundle builds
 node scripts/send-test-packet.js <phone-ip> --stream   # a fake Rig over the hotspot
 ```
 
-### Non-negotiables, enforced in code
+## Libraries and what each one is for
+
+Versions are pinned in `synapse/package.json`, and the Expo SDK (54) decides most of them. Upgrade with `npx expo install <pkg>` so the versions stay compatible.
+
+| Library | Used for | Where |
+|---|---|---|
+| `expo` 54, `react-native` 0.81, `react` 19 | the app runtime. The New Architecture is **on** and must stay on: Reanimated 4 will not build without it | everywhere |
+| `expo-router` 6 (+ its peers `expo-linking`, `expo-constants`) | file-based navigation: every file in `app/` is a screen | `app/` |
+| `zustand` 5 + `@react-native-async-storage/async-storage` | state stores; settings and history persist through `persist` (numbers only, never media) | `src/store/` |
+| `@shopify/react-native-skia` | draws the Mesh, the body solids, the rings and the charts | `src/ui/`, `src/train/PositionStage.tsx` |
+| `react-native-reanimated` 4, `react-native-worklets` | animations and press feedback | `src/ui/`, `src/train/LiveStage.tsx` |
+| `react-native-gesture-handler`, `react-native-screens`, `react-native-safe-area-context` | navigation plumbing | `app/_layout.tsx` |
+| `expo-camera` | camera permission, and the **fallback** camera when the pose-vision module is missing (preview and recording, no detection) | `src/train/SetCamera.tsx`, `ArmStage.tsx` |
+| `expo-video` | lesson clips and the Review player | `app/exercise/[id].tsx`, `src/train/TutorialStage.tsx`, `ReviewStage.tsx` |
+| `expo-file-system` (legacy API) | ephemeral clip files and the startup purge | `src/train/recording.ts` |
+| `expo-speech`, `expo-haptics` | spoken cues and vibration | `src/coach/speech.ts`, `haptics.ts` |
+| `expo-secure-store` | the user's own Anthropic API key | `src/coach/aiKeyStore.ts` |
+| `@anthropic-ai/sdk` | the optional Claude coach, loaded lazily only when a key exists | `src/coach/LLMCoach.ts` |
+| `expo-keep-awake` | screen stays on during a set | `src/train/useKeepAwakeSafe.ts` |
+| `expo-font`, `@expo-google-fonts/*`, `expo-splash-screen`, `expo-status-bar`, `expo-system-ui` | fonts (Chakra Petch, Space Grotesk, JetBrains Mono) and system chrome | `app/_layout.tsx`, `src/theme/` |
+| `expo-network` | **not imported anywhere.** It reports the wrong interface on a phone that is also a hotspot, so `RigUdp.addresses()` replaced it. Safe to remove with the next native build | — |
+| `jest-expo`, `typescript` | tests and type checking | `*.test.ts` |
+
+Native code in `synapse/modules/`: **CameraX 1.5.x** and **MediaPipe `tasks-vision`** (pose-vision), plain `java.net.DatagramSocket` (rig-udp).
+
+One build quirk: `metro.config.js` resolves `zustand` with the `require` condition. Its ESM build uses `import.meta`, which breaks the web preview. Keep that override.
+
+## Key constants — where each number lives
+
+| Constant | Value | File | What it controls |
+|---|---|---|---|
+| `RIG_HOTSPOT_SSID` / `RIG_HOTSPOT_PASSWORD` | `Synapse` / `GymSafetyNetPass` | `src/sources/udp/firmware.ts` | shown on Connect to copy. **Compiled into the Rig — do not "improve" them** |
+| `RIG_TARGET_IP` | `192.168.43.1` | `firmware.ts` | the only address the firmware sends to; Connect checks whether the phone holds it |
+| `RIG_UDP_PORT` | `1234` | `src/sources/udp/UdpSensorSource.ts` | listening port |
+| `SILENCE_LOST_MS` | `2500` | `UdpSensorSource.ts` | silence before an active link reads LOST |
+| `MAX_PACKETS_PER_SEC` | `120` | `UdpSensorSource.ts` | intake cap against floods (the Rig sends ~10 Hz) |
+| `REOPEN_DELAYS_MS` | `1000, 2000, 5000, 10000` | `UdpSensorSource.ts` | backoff for reopening a failed socket |
+| `MAX_PAYLOAD_BYTES`, `QUAT_NORM_MIN` / `MAX` | `4096`, `0.5` / `2` | `src/sources/udp/protocol.ts` | what counts as a sane packet and a real quaternion |
+| calibration `durationMs` | `3000` | `src/sources/udp/rigLink.ts` (`calibrateNeutral`) | how long the neutral stance is held |
+| `SENSOR_STALE_MS` | `700` | `src/engine/fusion.ts` | a Rig frame older than this is not fused |
+| `RIG_NODE_ORDER` | `back, leftArm, leftLeg, rightArm, rightLeg` | `src/engine/types.ts` | order of the compact array form |
+| `LIVE_CUE_GAP_MS`, `SAME_RULE_GAP_MS`, `LIVE_SEVERITY_FLOOR` | `4000`, `9000`, `0.55` | `src/coach/RuleCoach.ts` | how often the coach may speak, and from what severity |
+| DRIFT / FAULT thresholds | `0.55` / `1` | `src/train/LiveStage.tsx` | when the fault chip appears and when it turns red |
+| `CUE_MODEL`, `REPORT_MODEL`, `CUE_DEADLINE_MS` | `claude-haiku-4-5`, `claude-sonnet-5`, `2000` | `src/coach/LLMCoach.ts` | the optional Claude coach |
+| `HOLD_MS`, `LOCK_SCORE` | `1500`, `0.85` | `src/train/PositionStage.tsx` | how long and how closely the body must match the ghost before a set starts |
+| `DURATIONS` | `15, 30, 60, 90` s | `src/train/ArmStage.tsx` | set length choices |
+| `IMAGE_FILTER`, `WORLD_FILTER`, `HOLD_MS` | One Euro settings, `500` | `src/vision/tracker.ts` | camera smoothing, and how long a lost joint is held |
+| exercise rules (`ok`, `warn`, `rep`) | per lift | `src/data/exercises.ts` | every grading threshold |
+| palette | `DARK`, `LIGHT` | `src/theme/tokens.ts` | every colour. Screens read `color.*`, never hex |
+
+## How to change things
+
+| I want to… | Do this |
+|---|---|
+| **tune a form threshold** | edit the rule's `ok` / `warn` range in `src/data/exercises.ts`. `rangeSeverity` in `src/engine/ruleEngine.ts` turns them into a 0…1 severity. `ruleEngine.test.ts` and `setSession.test.ts` pin the behaviour |
+| **add an exercise** | add an `ExerciseSpec` to `EXERCISES` in `src/data/exercises.ts`: `rep` (which metric counts reps, top and bottom angles), `rules[]` (metric, ranges, segments to tint, cue text) and `lesson`. The library, the detail screen and the training flow pick it up. Leave `lesson.videoKey` as `null` unless there is footage of *that* lift |
+| **add a metric** | add the field to `JointMetrics` and `EMPTY_METRICS` in `src/engine/types.ts`. Compute it in `src/engine/poseMetrics.ts` (camera) and/or `src/engine/rigBody.ts` (Rig), then decide in `src/engine/fusion.ts` which source wins |
+| **judge technique with your own model** | implement `TechniqueEvaluator` and call `setTechniqueEvaluator()` in `app/_layout.tsx`. See `HANDOFF.md` |
+| **accept a new firmware wire format** | add a branch to `parseRigPayload` in `src/sources/udp/protocol.ts`, with tests in `protocol.test.ts`. Never throw: return `null` for anything unreadable. The raw log on Sensor setup shows what actually arrives |
+| **change the Rig's network constants** | only after the firmware itself changes. Edit `src/sources/udp/firmware.ts`; `firmware.test.ts` pins the values |
+| **flip quaternion order or mount axis** | no code change: Profile → Sensor setup. The defaults are `rigQuatScalarLast` and `rigSegmentAxis` in `src/store/settingsStore.ts` |
+| **change colours or the theme** | `DARK` / `LIGHT` in `src/theme/tokens.ts`. Severity colours come from `meshSeverityColor` |
+| **change the Claude models or prompts** | `CUE_MODEL`, `REPORT_MODEL`, `CUE_SYSTEM`, `REPORT_SYSTEM` in `src/coach/LLMCoach.ts`. `LLMCoach.test.ts` tests the guards that drop invented numbers |
+| **add a screen** | add a file under `app/` (expo-router) and register its options in the `Stack` in `app/_layout.tsx`. A new tab goes in `app/(tabs)/` and in `TAB_META` in `src/ui/TabBar.tsx` |
+| **change the pose model** | replace `modules/pose-vision/android/src/main/assets/pose_landmarker_full.task`, or register another `PoseDetectorFactory` (see *Camera pose* above) |
+| **change native code** | edit only `synapse/modules/*`. Regenerate with `npx expo prebuild --platform android --no-install`, then run `gradlew :rig-udp:compileReleaseKotlin` (or `:pose-vision:…`) before asking CI for a release |
+
+After any change, run `npm run typecheck && npm test`. CI runs both before it builds an APK.
+
+## Non-negotiables, enforced in code
 
 - **Video is ephemeral.** Recordings live in the app-private cache, are hard-deleted on every exit path from Review (continue/back/background/unmount), never touch the gallery, never upload. History stores numbers.
 - **Nothing is fabricated.** Only the deterministic rule engine produces grades, reps, alerts. Claude may only rephrase engine output; over-spec output is discarded for the deterministic cue. Missing data reads **NO DATA**, never a guess. That extends to the lesson clips: the source footage covers a squat and a shoulder press, so those two lifts get a video and the other four say they have none — a pull-up standing in for a deadlift teaches the wrong movement to somebody holding a loaded bar.

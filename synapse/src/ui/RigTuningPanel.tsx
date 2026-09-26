@@ -169,6 +169,11 @@ export function RigTuningPanel() {
                 borderRadius: radius.hudSm,
               }}
             >
+              {p.from ? (
+                <AppText variant="nano" color={color.textLo}>
+                  {`FROM ${p.from}`}
+                </AppText>
+              ) : null}
               <AppText variant="monoBody" color={p.parsed ? color.textMid : color.error} numberOfLines={3}>
                 {p.text}
               </AppText>

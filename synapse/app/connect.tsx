@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { buzz } from '@/src/coach/haptics';
 import { RIG_NODE_IDS, type RigNodeId, type SensorFrame, type SensorNode } from '@/src/engine/types';
 import { RIG_HOTSPOT_PASSWORD, RIG_HOTSPOT_SSID } from '@/src/sources/udp/firmware';
-import { rigLink, calibrateNeutral } from '@/src/sources/udp/rigLink';
+import { calibratedNodeCount, calibrateNeutral, rigLink } from '@/src/sources/udp/rigLink';
 import { RIG_UDP_PORT } from '@/src/sources/udp/UdpSensorSource';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
@@ -65,7 +65,11 @@ export default function ConnectScreen() {
   const nodesHeard = useConnectionStore((s) => s.nodesHeard);
   const hz = useConnectionStore((s) => s.hz);
   const battery = useConnectionStore((s) => s.battery);
-  const calNodes = useSettingsStore((s) => Object.keys(s.rigCalibration).length);
+  // derived in the selector: the raw counters tick every second while streaming
+  const unreadable = useConnectionStore((s) => (s.packets > 0 && s.rejected === s.packets ? s.packets : 0));
+  const lastSender = useConnectionStore((s) => s.lastSender);
+  const linkError = useConnectionStore((s) => s.linkError);
+  const calNodes = useSettingsStore(calibratedNodeCount);
 
   const [step, setStep] = useState<WizardStep>('searching');
   const [liveNodes, setLiveNodes] = useState<SensorNode[]>([]);
@@ -92,10 +96,7 @@ export default function ConnectScreen() {
     return () => {
       unsubRef.current?.();
       unsubRef.current = null;
-      // keep the link itself alive if it made it to LINKED — the chip stays truthful
-      if (useConnectionStore.getState().mode !== 'linked') {
-        rigLink.stop();
-      }
+      rigLink.release();
     };
   }, []);
 
@@ -238,6 +239,26 @@ export default function ConnectScreen() {
               {nodesHeard > 0 && nodeCount === 0 ? (
                 <AppText variant="nano" color={color.warn}>
                   ⚠ RIG IS STREAMING · {nodesHeard} NODE{nodesHeard === 1 ? '' : 'S'} HEARD · NONE HAS A FIX YET
+                </AppText>
+              ) : null}
+
+              {/* Packets that arrive and cannot be read keep the link in
+                  SEARCHING, which otherwise reads as a silent Rig. */}
+              {unreadable > 0 ? (
+                <AppText variant="nano" color={color.warn}>
+                  ⚠ {unreadable} PACKET{unreadable === 1 ? '' : 'S'} ARRIVED · NONE COULD BE READ · SEE SENSOR SETUP
+                </AppText>
+              ) : null}
+
+              {linkError ? (
+                <AppText variant="nano" color={color.error}>
+                  ⚠ CANNOT LISTEN ON :{RIG_UDP_PORT} · {linkError.toUpperCase()} · RETRYING
+                </AppText>
+              ) : null}
+
+              {lastSender ? (
+                <AppText variant="nano" color={color.textLo}>
+                  LAST PACKET FROM {lastSender}
                 </AppText>
               ) : null}
 

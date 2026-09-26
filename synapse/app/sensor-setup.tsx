@@ -4,7 +4,7 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { SensorFrame } from '@/src/engine/types';
-import { rigLink } from '@/src/sources/udp/rigLink';
+import { calibratedNodeCount, rigLink } from '@/src/sources/udp/rigLink';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
@@ -29,7 +29,7 @@ export default function SensorSetupScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const mode = useConnectionStore((s) => s.mode);
-  const calNodes = useSettingsStore((s) => Object.keys(s.rigCalibration).length);
+  const calNodes = useSettingsStore(calibratedNodeCount);
   const [frame, setFrame] = useState<SensorFrame | null>(null);
   const unsubRef = useRef<(() => void) | null>(null);
 

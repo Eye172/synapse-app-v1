@@ -24,3 +24,7 @@ materials/base/android/
 .claude/
 .DS_Store
 export_log.txt
+
+# a local library of agent skills (~520 MB, thousands of third-party skills);
+# a tool for working on the repo, not part of the product
+SKILLS/

@@ -24,6 +24,9 @@ import java.net.SocketException
 class RigUdpModule : Module() {
   private var socket: DatagramSocket? = null
   private var reader: Thread? = null
+  // bind and close arrive on Expo's async queue and may run on different
+  // threads; they swap the one socket, so they must not interleave
+  private val socketLock = Any()
 
   override fun definition() = ModuleDefinition {
     Name("RigUdp")
@@ -31,24 +34,26 @@ class RigUdpModule : Module() {
     Events(EVENT_MESSAGE, EVENT_ERROR)
 
     AsyncFunction("bind") { port: Int ->
-      closeSocket()
-      try {
-        // reuseAddress so a restarted app can rebind immediately instead of
-        // waiting out the previous socket — a tester will reopen the screen
-        // far faster than the OS releases the port
-        val s = DatagramSocket(null)
-        s.reuseAddress = true
-        s.bind(InetSocketAddress(port))
-        socket = s
-        startReading(s)
-      } catch (e: Exception) {
+      synchronized(socketLock) {
         closeSocket()
-        throw BindFailedException(port, e)
+        try {
+          // reuseAddress so a restarted app can rebind immediately instead of
+          // waiting out the previous socket — a tester will reopen the screen
+          // far faster than the OS releases the port
+          val s = DatagramSocket(null)
+          s.reuseAddress = true
+          s.bind(InetSocketAddress(port))
+          socket = s
+          startReading(s)
+        } catch (e: Exception) {
+          closeSocket()
+          throw BindFailedException(port, e)
+        }
       }
     }
 
     AsyncFunction("close") {
-      closeSocket()
+      synchronized(socketLock) { closeSocket() }
     }
 
     /**
@@ -80,7 +85,7 @@ class RigUdpModule : Module() {
     }
 
     OnDestroy {
-      closeSocket()
+      synchronized(socketLock) { closeSocket() }
     }
   }
 

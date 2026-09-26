@@ -25,6 +25,14 @@ export interface ConnectionState {
   battery: number | null;
   /** rig display name (kit manager) */
   rigName: string;
+  /** every datagram the socket received this session, understood or not */
+  packets: number;
+  /** of those, how many could not be parsed — "talking, but not understood" */
+  rejected: number;
+  /** address the last datagram came from (the Rig on the hotspot) */
+  lastSender: string | null;
+  /** why the socket could not listen, while it retries; null when healthy */
+  linkError: string | null;
   set: (p: Partial<Omit<ConnectionState, 'set'>>) => void;
 }
 
@@ -35,6 +43,10 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   hz: 0,
   battery: null,
   rigName: 'Synapse Rig',
+  packets: 0,
+  rejected: 0,
+  lastSender: null,
+  linkError: null,
   set: (p) => set(p),
 }));
 

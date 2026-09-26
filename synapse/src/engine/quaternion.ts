@@ -48,15 +48,6 @@ export function quatMultiply(a: Quat, b: Quat): Quat {
   ];
 }
 
-/**
- * Rotation that takes `from` to `to`: to ⊗ from⁻¹ expressed in the local
- * frame as from⁻¹ ⊗ to. This is the calibration primitive — "how far has this
- * segment moved since the neutral capture".
- */
-export function quatRelative(reference: Quat, current: Quat): Quat {
-  return quatMultiply(quatConjugate(reference), current);
-}
-
 /** Rotate a vector by a quaternion (v' = q v q*). */
 export function quatRotate(q: Quat, v: Vec3): Vec3 {
   const [w, x, y, z] = q;
@@ -69,12 +60,6 @@ export function quatRotate(q: Quat, v: Vec3): Vec3 {
     y: v.y + w * ty + (z * tx - x * tz),
     z: v.z + w * tz + (x * ty - y * tx),
   };
-}
-
-/** Smallest rotation angle represented by q, in degrees (0..180). */
-export function quatAngleDeg(q: Quat): number {
-  const w = Math.min(1, Math.abs(quatNormalize(q)[0]));
-  return 2 * Math.acos(w) * DEG;
 }
 
 /**
