@@ -192,7 +192,12 @@ function tick() {
 
   if (ov.width !== vid.videoWidth) { ov.width = vid.videoWidth; ov.height = vid.videoHeight; }
   const frame = { width: vid.videoWidth, height: vid.videoHeight };
-  const t = vid.currentTime * 1000;
+  // The page's own clock, not the video's. The clips loop, and currentTime
+  // jumping back to zero is a timestamp going backwards — which MediaPipe's
+  // video mode rejects outright ("Packet timestamp mismatch") on every frame
+  // from then on, so tracking died six seconds after the page loaded. A clip
+  // played in real time is a camera, and a camera's clock only moves forward.
+  const t = performance.now();
 
   // feed the detector at its own slower rate, and redraw every frame
   if (t - lastDetectT >= DETECT_PERIOD_MS) {

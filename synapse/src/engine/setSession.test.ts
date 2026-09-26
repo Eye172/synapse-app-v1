@@ -5,6 +5,9 @@ import { SimPoseSource } from '@/src/sources/sim/SimPoseSource';
 import { SimSensorSource } from '@/src/sources/sim/SimSensorSource';
 import { SimTimeline, defaultFaultScript } from '@/src/sources/sim/simTimeline';
 
+import { setTechniqueEvaluator, StubEvaluator, type TechniqueInput } from '@/src/technique/evaluator';
+import type { TrackedPose } from '@/src/vision/tracker';
+
 import type { SafetyAlert } from './ruleEngine';
 import { SetEngine, type RepRecord } from './setSession';
 
@@ -171,5 +174,136 @@ describe('SetEngine — a camera pose is graded in one unit', () => {
 
   it('reads an upright torso as upright', () => {
     expect(torsoLeanFrom(cameraLean(0))!).toBeCloseTo(0, 0);
+  });
+});
+
+/**
+ * The technique evaluator is the part another developer writes. This is the
+ * proof that what they return reaches the lifter: through the engine, onto
+ * the body, into the fault chip — with the Rig's frame and the camera's body
+ * as their input. Before this test existed the evaluator was exported and
+ * called by nothing, and its output would have gone nowhere.
+ */
+describe('SetEngine — the technique evaluator is actually wired in', () => {
+  afterEach(() => setTechniqueEvaluator(new StubEvaluator()));
+
+  function harness(trackedPose: TrackedPose | null = null) {
+    let emitPose: ((f: unknown) => void) | null = null;
+    let emitSensor: ((f: unknown) => void) | null = null;
+    const pose = {
+      kind: 'rig' as const,
+      status: 'active' as const,
+      start() {},
+      stop() {},
+      onPose(cb: (f: unknown) => void) {
+        emitPose = cb;
+        return () => {};
+      },
+      onStatus() {
+        return () => {};
+      },
+    };
+    const sensor = {
+      kind: 'udp' as const,
+      status: 'active' as const,
+      start() {},
+      stop() {},
+      onFrame(cb: (f: unknown) => void) {
+        emitSensor = cb;
+        return () => {};
+      },
+      onStatus() {
+        return () => {};
+      },
+    };
+    const frames: { severity: Record<string, number>; technique: { computed: boolean; worst: unknown } }[] = [];
+    const engine = new SetEngine(SQUAT, {
+      poseSource: pose as never,
+      sensorSource: sensor as never,
+      ownsSensor: false,
+      coach: new RuleCoach(),
+      trackedPose: () => trackedPose,
+      events: { onFrame: (f) => frames.push(f as never) },
+    });
+    const landmarks = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, v: 1 }));
+    const rigFrame = {
+      t: 1,
+      protocol: 'v2-packed',
+      flags: {},
+      nodes: [{ id: 'back', quat: [1, 0, 0, 0] }],
+    };
+    return {
+      engine,
+      frames,
+      rigFrame,
+      sendSensor: () => emitSensor!(rigFrame),
+      sendPose: () => emitPose!({ t: Date.now(), source: 'rig', landmarks }),
+    };
+  }
+
+  it('tints the body and raises the finding from what the evaluator returns', () => {
+    setTechniqueEvaluator({
+      name: 'handoff-test',
+      ready: () => true,
+      evaluate: () => ({
+        segments: { leftThigh: 1 },
+        worst: { segment: 'leftThigh', label: 'Knee caving in', severity: 1 },
+        computed: true,
+        by: 'handoff-test',
+      }),
+      reset: () => {},
+    });
+    const h = harness();
+    h.engine.start();
+    h.sendPose();
+    h.engine.stop();
+
+    const f = h.frames[0]!;
+    expect(f.technique.computed).toBe(true);
+    expect(f.severity.leftThigh).toBe(1);
+    expect(f.technique.worst).toEqual({ segment: 'leftThigh', label: 'Knee caving in', severity: 1 });
+  });
+
+  it('hands the evaluator the Rig frame and the camera body it is meant to judge', () => {
+    const seen: TechniqueInput[] = [];
+    setTechniqueEvaluator({
+      name: 'spy',
+      ready: () => true,
+      evaluate: (i) => {
+        seen.push(i);
+        return { segments: {}, worst: null, computed: true, by: 'spy' };
+      },
+      reset: () => {},
+    });
+    const body = { t: 1, coverage: 1 } as unknown as TrackedPose;
+    const h = harness(body);
+    h.engine.start();
+    h.sendSensor();
+    h.sendPose();
+    h.engine.stop();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.sensor).toBe(h.rigFrame);
+    expect(seen[0]!.pose).toBe(body);
+    expect(seen[0]!.exercise.id).toBe(SQUAT.id);
+  });
+
+  it('starts every set with a fresh evaluator', () => {
+    const reset = jest.fn();
+    setTechniqueEvaluator({ name: 'r', ready: () => false, evaluate: () => ({ segments: {}, worst: null, computed: false, by: 'r' }), reset });
+    const h = harness();
+    h.engine.start();
+    h.engine.stop();
+    expect(reset).toHaveBeenCalledTimes(1);
+  });
+
+  it('changes nothing while the stub is installed: the rule engine alone colours the body', () => {
+    const h = harness();
+    h.engine.start();
+    h.sendPose();
+    h.engine.stop();
+    const f = h.frames[0]! as unknown as { severity: unknown; grade: { segments: unknown }; technique: { computed: boolean } };
+    expect(f.technique.computed).toBe(false);
+    expect(f.severity).toBe(f.grade.segments);
   });
 });

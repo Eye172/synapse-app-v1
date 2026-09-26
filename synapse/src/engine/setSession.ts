@@ -6,11 +6,19 @@
  */
 import type { Coach, CoachCue } from '@/src/coach/types';
 import type { PoseSource, SensorSource, Unsubscribe } from '@/src/sources/types';
+import {
+  evaluateTechnique,
+  mergeSeverity,
+  techniqueEvaluator,
+  type SegmentSeverity,
+  type TechniqueVerdict,
+} from '@/src/technique/evaluator';
+import type { TrackedPose } from '@/src/vision/tracker';
 
 import { MetricFusion, type DataSourceLabel } from './fusion';
 import { isotropicLandmarks } from './geometry';
 import { MetricTracker, deriveMetrics } from './poseMetrics';
-import { RigCalibration, rigBodyState, rigMetrics } from './rigBody';
+import { RigCalibration, rigBodyState, rigMetrics, type RigBodyState } from './rigBody';
 import { RepCounter, tempoAdherence, type RepTiming } from './repCounter';
 import {
   AlertTracker,
@@ -20,7 +28,7 @@ import {
   type RuleEval,
   type SafetyAlert,
 } from './ruleEngine';
-import type { ExerciseSpec, FormRule, JointMetrics, PoseFrame } from './types';
+import type { ExerciseSpec, FormRule, JointMetrics, PoseFrame, SensorFrame } from './types';
 
 export interface RepRecord {
   index: number;
@@ -67,6 +75,13 @@ export interface EngineFrame {
   pose: PoseFrame;
   metrics: Omit<JointMetrics, 't'>;
   grade: FrameGrade;
+  /** the technique evaluator's verdict on this frame (`computed: false` until one is installed) */
+  technique: TechniqueVerdict;
+  /**
+   * What to tint the body with: the rule engine's severity and the technique
+   * evaluator's, the worse of the two on each segment.
+   */
+  severity: SegmentSeverity;
   repCount: number;
   repPhase: string;
   source: DataSourceLabel;
@@ -106,6 +121,9 @@ export class SetEngine {
   private alertCount = 0;
   private lastAlertAt: number | null = null;
   private lastSource: DataSourceLabel = 'sim';
+  /** the Rig's most recent frame, and the body it describes, for the technique evaluator */
+  private lastSensor: SensorFrame | null = null;
+  private lastRigBody: RigBodyState | null = null;
   private calibration: RigCalibration;
 
   constructor(
@@ -120,6 +138,12 @@ export class SetEngine {
       coach: Coach;
       events?: SetEngineEvents;
       now?: () => number;
+      /**
+       * The camera's tracked body for the technique evaluator, when the camera
+       * is running — smoothed, bone-locked and measured. The tracker lives with
+       * the screen that draws it, so it is read through this rather than owned.
+       */
+      trackedPose?: () => TrackedPose | null;
     },
   ) {
     this.counter = new RepCounter(ex.rep);
@@ -141,13 +165,20 @@ export class SetEngine {
     this.running = true;
     this.startedAt = this.now();
     this.io.coach.setStart(this.ex);
+    // an evaluator carries state across frames — reps, windows, baselines —
+    // and none of it may leak from one set into the next
+    this.lastSensor = null;
+    this.lastRigBody = null;
+    techniqueEvaluator().reset();
     this.subs.push(this.io.poseSource.onPose((p) => this.onPose(p)));
     if (this.io.sensorSource) {
       this.subs.push(
         this.io.sensorSource.onFrame((f) => {
+          this.lastSensor = f;
           // quaternion rigs carry real geometry; legacy scalar frames don't
           const hasQuat = f.nodes.some((n) => n.quat !== undefined);
-          this.fusion.updateSensor(f, hasQuat ? rigMetrics(rigBodyState(f, this.calibration)) : null);
+          this.lastRigBody = hasQuat ? rigBodyState(f, this.calibration) : null;
+          this.fusion.updateSensor(f, this.lastRigBody ? rigMetrics(this.lastRigBody) : null);
         }),
       );
       if (this.io.ownsSensor !== false) this.io.sensorSource.start();
@@ -246,11 +277,21 @@ export class SetEngine {
       if (cue) this.io.events?.onCue?.(cue);
     }
 
+    const technique = evaluateTechnique({
+      t,
+      exercise: this.ex,
+      sensor: this.lastSensor,
+      rigBody: this.lastRigBody,
+      pose: this.io.trackedPose?.() ?? null,
+    });
+
     this.io.events?.onFrame?.({
       t,
       pose,
       metrics,
       grade,
+      technique,
+      severity: mergeSeverity(grade.segments, technique),
       repCount: tick.count,
       repPhase: tick.phase,
       source,

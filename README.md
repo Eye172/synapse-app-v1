@@ -9,6 +9,8 @@ This repository contains the **Rig companion app** — a real, screen-recordable
 
 ---
 
+> **Adding technique grading?** Start with [`HANDOFF.md`](HANDOFF.md): the seam, the data it receives, what to return, and a worked example that runs in the test suite.
+
 ## There is no demo mode
 
 Synapse grades what its sensors can actually see. If neither the Rig nor the camera is available, a set **does not start** — the app says `NOTHING TO MEASURE WITH` and offers to connect. If the Rig drops mid-set, the Mesh freezes and a full-width `RIG LINK LOST` banner says the set is no longer being graded.
@@ -263,9 +265,10 @@ registerPoseDetector(myFactory); // 33 landmarks; frames never leave the device
 
 **Trying it without a phone.** `harness/` and `live/` run the identical
 pipeline in a browser — the pages bundle the app's own modules, so what the
-browser draws is what the app would draw. `node harness/serve.js` replays
-clips and reference stills; `node live/serve.js` runs it off a laptop webcam.
-Neither has its own copy of the maths, which is the point.
+browser draws is what the app would draw. `cd harness && npm install && npm run setup`,
+then `npm run harness` (clips + reference stills, :8099) or `npm run live`
+(laptop webcam, :8098). After changing app code, `npm run build` re-bundles it.
+Neither page has its own copy of the maths, which is the point.
 
 ### Recording — one clip, from start to Review or to nothing
 
@@ -283,23 +286,9 @@ no clip ever reached Review on Android.
 
 ### Technique grading — the seam left open
 
-`src/technique/evaluator.ts` is where a lift gets judged, and it is deliberately
-the one part not built here. An evaluator receives the sensor frame, the
-exercise and the tracked body; it returns a severity per segment. It cannot
-reach into the renderer and can be replaced wholesale without touching drawing
-code.
+`src/technique/evaluator.ts` is where a lift is judged by the Rig + camera evaluator, and it is deliberately the one part not built here — see [`HANDOFF.md`](HANDOFF.md). The shipped default is `StubEvaluator`, which computes nothing **and says so** (`computed: false`); until a real one is installed, the built-in rule engine alone colours the body.
 
-The shipped default is `StubEvaluator`, which computes nothing **and says so** —
-`computed: false`. The renderer keeps the figure neutral on that answer rather
-than reporting a clean lift it never checked. *No opinion* and *no faults* are
-different answers and the wearer is entitled to know which one they got.
-
-**What is already wired, so a new evaluator lights up on arrival:** return a
-`SegmentSeverity` (`0` clean … `1` a fault worth stopping for) and the colour
-follows automatically — `meshSeverityColor` lerps turquoise → amber → red
-continuously, per segment, and the stroke thickens at the top of the range. A
-part the app could not measure is faded instead of coloured (`solid.inferred`),
-so "we cannot see your back" never looks like "your back is rounding".
+What is already wired, so a real evaluator lights up on arrival: `SetEngine` calls it on every pose frame with the Rig's raw frame, the calibrated rig body and the camera's tracked body, and resets it at the start of each set. Its per-segment severities are merged with the rule engine's (worse wins) and tint the body turquoise → amber → red. Its `worst` finding takes the fault chip, and at full severity it is marked on the Review timeline. Output is sanitized first, and an evaluator that throws degrades to "not checked". `src/technique/example.test.ts` proves the whole path on a simulated set.
 
 ### Diagnosing the Rig link
 
@@ -344,27 +333,87 @@ at the neutral pose and read as a limb held still.
 
 ---
 
-## Engineering map
+## Architecture — how the code is organised
+
+### Repository layout
+
+| Path | What it is |
+|---|---|
+| `synapse/` | **the app** (Expo SDK 54, React Native 0.81, TypeScript strict). Everything shipped lives here |
+| `harness/`, `live/` | browser test pages that run the app's own vision code on clips, stills and a laptop webcam |
+| `materials/` | firmware prototype (`materials/base/main.py` is the ground truth for the Rig's network constants), design references, source footage |
+| `legacy/` | the abandoned native Kotlin prototype — not built, not used, kept for reference |
+| `.github/workflows/build-apk.yml` | CI: typecheck + tests + release APK + GitHub Release |
+| `HANDOFF.md` | guide for the developer adding technique grading |
+| `ЗАПУСК.md`, `TESTING.md` | how to release a build (owner) and how to test it (tester) |
+
+### Layers inside `synapse/`
+
+Data flows one way: **sources → engine → screens → renderer**. Each layer depends only on the ones to its left. The UI never touches hardware, and the engine never touches React.
 
 ```
-synapse/
-├── app/                    # expo-router: tabs, train modal, connect wizard, onboarding, sensor setup
-├── src/
-│   ├── engine/             # THE TRUTH: rule engine, rep counter, pose→metric derivation, fusion, set session
-│   ├── sources/            # the seams: udp (protocol+link+rig pose), camera (detector registry), sim (__DEV__/tests only)
-│   ├── coach/              # RuleCoach (deterministic) + LLMCoach (Claude, breakpoints only) + TTS/haptics
-│   ├── data/               # 6-exercise seed (full rule specs), tutorial clips, achievements
-│   ├── train/              # the training-loop stages (arm/position/live/review/report) + ephemeral recording
-│   ├── store/              # zustand: settings, history (metrics only), connection
-│   ├── theme/ + ui/        # "Biometric HUD" tokens and component kit
-│   └── shims/              # metro shims (node:* → empty on native)
-├── modules/rig-udp/        # local Expo module: the native UDP receiver (Kotlin, ~100 lines)
-├── modules/pose-vision/    # local Expo module: CameraX preview + MediaPipe pose + recorder (Kotlin)
-├── scripts/                # asset generator, Rig packet emulator
-└── assets/                 # generated brand assets + the two lesson clips we can honestly label
+ sources/            engine/                 train/ (screens)         ui/ (renderer)
+ udp/  Rig ──┐       setSession.ts           train.tsx (flow)         BodyOverlay (camera: solids on the body)
+ camera/ ────┼──►    ├ poseMetrics  angles   ├ PositionStage          MeshView3D  (rig: solids from an angle)
+ sim/  dev ──┘       ├ rigBody     IMU→body  ├ LiveStage ──────────►  MeshView    (flat fallback)
+                     ├ fusion      pose+rig  ├ ReviewStage            facets.ts   severity → colour
+                     ├ ruleEngine  grades    └ ReportStage
+                     ├ repCounter  reps
+                     └ technique/evaluator ◄── the seam for technique grading (HANDOFF.md)
+
+ vision/ (camera only): tracker → cameraFit → proportions → useBodyTracking → BodyOverlay
 ```
 
-Verification: `npm run typecheck` · `npm test` (357 tests: quaternion + forward-kinematics math, rep hysteresis, protocol hostility across both wire forms, coach grounding, ephemeral-deletion contract) · `npx expo export --platform android`.
+### `synapse/src/`, folder by folder
+
+| Folder | Responsibility | Start with |
+|---|---|---|
+| `sources/` | **Where data comes from.** Each source implements `PoseSource` or `SensorSource` from `sources/types.ts`. `provider.ts` picks the sources for a set: a linked Rig first, then the camera, then (dev builds only) the simulator. If none is available, no set starts | `provider.ts` |
+| `sources/udp/` | The Rig link. `protocol.ts` parses every wire format and treats all input as untrusted. `UdpSensorSource` owns the socket and the link state. `rigLink.ts` holds the app-wide link and calibration. `RigPoseSource` turns rig frames into a body. `firmware.ts` holds the Rig's fixed network constants | `protocol.ts` |
+| `sources/camera/` | Camera pose. `PoseDetector.ts` is the detector registry, `CameraPoseSource` is the source, and `poseVisionBridge.ts` turns native MediaPipe events into observations | `poseVisionBridge.ts` |
+| `sources/sim/` | A deterministic simulator of a lifter and a Rig, with fault injection. Used only by tests and `__DEV__` builds; it can never reach a tester's APK | `simTimeline.ts` |
+| `engine/` | **The truth.** `SetEngine` (`setSession.ts`) runs a set. For every pose frame it derives metrics, fuses them with the Rig, grades them against the exercise's rules, counts reps, calls the technique evaluator, and emits one `EngineFrame`. Pure TypeScript, fully unit-tested | `setSession.ts`, `types.ts` |
+| `technique/` | **The seam for technique grading.** See `HANDOFF.md` | `evaluator.ts` |
+| `vision/` | Camera-only maths: One Euro smoothing, bone lengths, body proportions, the per-frame camera solve, and the viewport mapping between frame and screen | `tracker.ts`, `useBodyTracking.ts` |
+| `train/` | The training flow's screens (select → tutorial → arm → position → live → review → report). Also `SetCamera` (one camera for the whole set), `ClipRecorder` (a clip's lifecycle) and `recording.ts` (ephemeral files) | `app/train.tsx`, then `LiveStage.tsx` |
+| `ui/` | Components and the renderer. `bodyVolumes.ts` builds solids in metres, `facets.ts` turns them into coloured faces, and `BodyOverlay` / `MeshView3D` / `MeshView` draw them | `facets.ts` |
+| `coach/` | `RuleCoach` (deterministic cues), `LLMCoach` (optional Claude rephrasing that never invents numbers), speech, haptics | `RuleCoach.ts` |
+| `data/` | The exercise catalogue with full rule specs, lesson videos, achievements | `exercises.ts` |
+| `store/` | zustand stores: settings, history (numbers only, never media), Rig connection state | — |
+| `theme/` | Design tokens, the dark and paper palettes, typography, and the severity colour ramp `meshSeverityColor` | `tokens.ts` |
+
+`synapse/app/` holds the expo-router screens: the tabs, the `train` modal, the `connect` wizard, onboarding, and sensor setup. Startup wiring happens in `_layout.tsx`: the camera detector is registered there, and the technique evaluator will be too.
+
+`synapse/modules/` holds the two local native Expo modules (Kotlin), which are autolinked from this folder:
+- `rig-udp` — a receive-only UDP socket for the Rig
+- `pose-vision` — a camera view that owns CameraX (preview, frame analysis, recording) and runs MediaPipe Pose. `PoseEngine.kt` is the detector, `PoseVisionView.kt` is the camera, and `index.ts` is the JS surface
+
+### One frame, end to end
+
+1. **Rig:** a UDP datagram goes to `UdpSensorSource`, then `parseRigPayload`, and becomes a `SensorFrame`. `RigPoseSource` builds landmarks through the calibration, and `SetEngine` keeps the frame plus its calibrated `rigBody`.
+2. **Camera:** a CameraX frame goes to `PoseEngine` (MediaPipe), which fires an `onPose` event. `poseVisionBridge` fixes the axes and the clock, and `CameraPoseSource` emits a `PoseFrame` with image points, world points and the frame size. In parallel, `useBodyTracking` smooths the pose, measures the body and solves the camera.
+3. **Engine:** `SetEngine.onPose` runs `deriveMetrics` (camera points are made isotropic first), fuses the result with the Rig, grades it with `gradeFrame` against the exercise rules, runs the rep counter, calls `evaluateTechnique`, and emits `EngineFrame { grade, technique, severity }`.
+4. **Screen:** `LiveStage` tints the body by `frame.severity`, shows the worst finding in the fault chip, speaks the coach's cues and records the clip. The line at the bottom of the screen shows the camera's health.
+
+### Conventions
+
+- **TypeScript strict.** The path alias `@/` means `synapse/`.
+- **Tests live next to the code** (`foo.ts` alongside `foo.test.ts`, run by jest). Everything pure is tested: parsing, maths, grading, the clip lifecycle. CI refuses to build an APK when tests fail.
+- **Comments say why, not what.** Every non-obvious decision is written down where it happens, and especially every bug the code is there to prevent.
+- **Nothing is invented.** Missing data reads `NO DATA` / `NO FIX` / `computed: false`, never a plausible guess. See *Non-negotiables* below.
+- **Native code lives only in `modules/`.** `synapse/android/` is generated by `expo prebuild` and gitignored; never edit it by hand.
+
+### Commands
+
+```bash
+cd synapse
+npm install
+npm run typecheck                 # tsc --noEmit
+npm test                          # jest, ~390 tests
+npx expo start --offline          # dev server (add --max-workers 1 on low-RAM machines)
+npx expo export --platform android   # proves the JS bundle builds
+node scripts/send-test-packet.js <phone-ip> --stream   # a fake Rig over the hotspot
+```
 
 ### Non-negotiables, enforced in code
 

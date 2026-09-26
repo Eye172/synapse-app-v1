@@ -28,7 +28,7 @@ import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
 import { MeshView3D } from '@/src/ui/MeshView3D';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
-import { useBodyTracking } from '@/src/vision/useBodyTracking';
+import { useBodyTracking, type BodyTracking } from '@/src/vision/useBodyTracking';
 import { coverViewport, landmarksToScreen } from '@/src/vision/viewport';
 
 import type { TrainConfig } from './ArmStage';
@@ -136,6 +136,9 @@ export function LiveStage({
 
   const facing = useSettingsStore((s) => s.cameraFacing);
   const recordingStartedRef = useRef(false);
+  // the engine outlives any one render, and hands the technique evaluator the
+  // tracked body as of the frame it is grading — so it reads it through a ref
+  const trackingRef = useRef<BodyTracking | null>(null);
   const engineRef = useRef<SetEngine | null>(null);
   const markersRef = useRef<FaultMarker[]>([]);
   const lastMarkerAt = useRef<Record<string, number>>({});
@@ -180,21 +183,22 @@ export function LiveStage({
       ownsSensor: sources.ownsSensor,
       calibration: sources.calibration,
       coach,
+      trackedPose: () => trackingRef.current?.pose ?? null,
       events: {
         onFrame: (f) => {
           setFrame(f);
-          if (f.grade.worstLive && f.grade.worstLive.severity !== null && f.grade.worstLive.severity >= 1) {
-            const id = f.grade.worstLive.rule.id;
+          // a fault at full severity is marked on the Review timeline, at most
+          // once per 2.5 s per finding, whichever grader raised it
+          const mark = (id: string, name: string) => {
             const now = Date.now();
-            if (now - (lastMarkerAt.current[id] ?? 0) > 2500) {
-              lastMarkerAt.current[id] = now;
-              markersRef.current.push({
-                tSec: (now - startedAtRef.current) / 1000,
-                ruleId: id,
-                name: f.grade.worstLive.rule.name,
-              });
-            }
-          }
+            if (now - (lastMarkerAt.current[id] ?? 0) <= 2500) return;
+            lastMarkerAt.current[id] = now;
+            markersRef.current.push({ tSec: (now - startedAtRef.current) / 1000, ruleId: id, name });
+          };
+          const rule = f.grade.worstLive;
+          if (rule && rule.severity !== null && rule.severity >= 1) mark(rule.rule.id, rule.rule.name);
+          const found = f.technique.computed ? f.technique.worst : null;
+          if (found && found.severity >= 1) mark(`technique:${found.segment}:${found.label}`, found.label);
         },
         onCue: handleCue,
         onAlert: (a) => setAlert(a),
@@ -307,7 +311,22 @@ export function LiveStage({
   const sym = frame?.metrics.symmetry ?? null;
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
-  const worst = frame?.grade.worstLive ?? null;
+  // The fault chip shows whichever grader found the worse problem: a rule
+  // from the exercise spec, or the technique evaluator's own finding.
+  const ruleFault =
+    frame?.grade.worstLive && frame.grade.worstLive.severity !== null
+      ? {
+          severity: frame.grade.worstLive.severity,
+          name: frame.grade.worstLive.rule.name,
+          value: typeof frame.grade.worstLive.value === 'number' ? frame.grade.worstLive.value : null,
+        }
+      : null;
+  const techniqueWorst = frame?.technique.computed ? frame.technique.worst : null;
+  const techniqueFault = techniqueWorst
+    ? { severity: techniqueWorst.severity, name: techniqueWorst.label, value: null }
+    : null;
+  const fault =
+    techniqueFault && (!ruleFault || techniqueFault.severity > ruleFault.severity) ? techniqueFault : ruleFault;
   // what is drawing the body *right now* — the bundle's choice can be
   // overridden at runtime when a source stalls
   const liveMeshSource = frame?.pose.source ?? sources.poseOrigin;
@@ -325,7 +344,7 @@ export function LiveStage({
       : frame.pose.landmarks
     : null;
   const meshFrame: MeshFrame | null =
-    frame && meshLandmarks ? { landmarks: meshLandmarks, segments: frame.grade.segments, t: frame.t } : null;
+    frame && meshLandmarks ? { landmarks: meshLandmarks, segments: frame.severity, t: frame.t } : null;
 
   // The camera path tracks, measures and places the body itself; the rig
   // path has no picture to land on and is posed from a chosen angle
@@ -336,6 +355,7 @@ export function LiveStage({
     mirrored: facing === 'front',
     paused,
   });
+  trackingRef.current = tracking;
 
   return (
     // The flow draws the camera behind this screen, so with one running the
@@ -362,7 +382,7 @@ export function LiveStage({
             pose={tracking.pose}
             camera={tracking.camera}
             viewport={tracking.viewport ?? undefined}
-            severity={frame?.grade.segments}
+            severity={frame?.severity}
             width={width}
             height={height}
             dimmed={paused}
@@ -473,30 +493,30 @@ export function LiveStage({
       </View>
 
       {/* fault chip */}
-      {worst && worst.severity !== null && worst.severity >= 0.55 && !alert ? (
+      {fault && fault.severity >= 0.55 && !alert ? (
         <View
           style={{
             position: 'absolute',
             right: 20,
             top: height * 0.24,
             borderWidth: 1,
-            borderColor: worst.severity >= 1 ? color.error : color.warn,
-            backgroundColor: worst.severity >= 1 ? 'rgba(255,59,92,0.12)' : 'rgba(255,194,75,0.10)',
+            borderColor: fault.severity >= 1 ? color.error : color.warn,
+            backgroundColor: fault.severity >= 1 ? 'rgba(255,59,92,0.12)' : 'rgba(255,194,75,0.10)',
             borderRadius: 6,
             paddingHorizontal: 10,
             paddingVertical: 7,
             maxWidth: 150,
           }}
         >
-          <AppText variant="nano" color={worst.severity >= 1 ? color.error : color.warn}>
-            {worst.severity >= 1 ? 'FAULT' : 'DRIFT'}
+          <AppText variant="nano" color={fault.severity >= 1 ? color.error : color.warn}>
+            {fault.severity >= 1 ? 'FAULT' : 'DRIFT'}
           </AppText>
           <AppText variant="micro" color={color.textHi}>
-            {worst.rule.name.toUpperCase()}
+            {fault.name.toUpperCase()}
           </AppText>
-          {typeof worst.value === 'number' ? (
+          {fault.value !== null ? (
             <AppText variant="nano" color={color.textMid}>
-              {`${worst.value.toFixed(0)}°`}
+              {`${fault.value.toFixed(0)}°`}
             </AppText>
           ) : null}
         </View>

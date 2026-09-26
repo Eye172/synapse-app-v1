@@ -1,10 +1,12 @@
 {
   "name": "harness",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Browser harnesses that run the app's own vision pipeline on clips, stills and a laptop webcam",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "setup": "node setup.js",
+    "build": "node setup.js --build-only",
+    "harness": "node serve.js 8099",
+    "live": "node ../live/serve.js 8098"
   },
   "keywords": [],
   "author": "",
@@ -13,5 +15,6 @@
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
     "esbuild": "^0.28.2"
-  }
+  },
+  "private": true
 }
