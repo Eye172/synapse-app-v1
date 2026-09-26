@@ -24,12 +24,9 @@ import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
 import { BodyOverlay } from '@/src/ui/BodyOverlay';
 import { CornerBrackets } from '@/src/ui/CornerBrackets';
-import type { MeshFrame } from '@/src/ui/MeshView';
-import { MeshView3D } from '@/src/ui/MeshView3D';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
 import { useBodyTracking } from '@/src/vision/useBodyTracking';
-import { coverViewport, landmarksToScreen } from '@/src/vision/viewport';
 
 import type { TrainConfig } from './ArmStage';
 import type { EphemeralClip } from './recording';
@@ -342,18 +339,9 @@ export function LiveStage({
   // The Rig drew this body; if it stops sending, the Mesh holds its last
   // shape. A frozen skeleton reads exactly like a still one — the lifter has
   // to be told the difference, mid-set, without looking away from the bar.
-  const rigLinkLost = sources.poseOrigin === 'rig' && linkMode !== 'linked';
-  // A camera pose is in the frame's own coordinates, unmirrored; the flat
-  // skeleton is drawn over a preview that is cropped to the screen and, from
-  // the front camera, mirrored. Drawn as-is it would sit beside the lifter
-  // and step left when they step right.
-  const meshLandmarks = frame
-    ? frame.pose.source === 'camera' && frame.pose.frame
-      ? landmarksToScreen(frame.pose.landmarks, coverViewport(frame.pose.frame, { width, height }, facing === 'front'))
-      : frame.pose.landmarks
-    : null;
-  const meshFrame: MeshFrame | null =
-    frame && meshLandmarks ? { landmarks: meshLandmarks, segments: frame.severity, t: frame.t } : null;
+  // a Rig that was linked when the set began and has since dropped: the set
+  // goes on, graded from the camera alone, and the lifter is told
+  const rigLinkLost = sources.rigLinked && linkMode !== 'linked';
 
   // The camera path tracks, measures and places the body itself; the rig
   // path has no picture to land on and is posed from a chosen angle
@@ -370,18 +358,12 @@ export function LiveStage({
     // background has to let it through; without one, this is the void.
     <View style={{ flex: 1, backgroundColor: cameraLive ? 'transparent' : color.void }}>
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        {/* The body is always 3D, and never made up.
-
-            With a camera that has been solved, the mannequin is built in
-            metres around the lifter's own measurements and pushed back
-            through the lens that saw them, so it lands on their body —
-            translucent over the picture, coloured by the Rig's grading.
-
-            With the Rig drawing and no solved camera, the Rig's own measured
-            body is shown from a fixed angle. With the camera as the only
-            instrument, nothing is drawn until the solve converges — the
-            picture alone, and SOLVING in the status strip — because a figure
-            that is not standing on the lifter would be a figure made up. */}
+        {/* One way to show the body: the 3D mannequin, built in metres around
+            the lifter's own measurements and placed through the lens that
+            filmed them, so it stands on their picture — coloured by the
+            grading (camera, plus the Rig when linked). Until the camera has
+            placed it, nothing is drawn: the picture alone and SOLVING in the
+            status strip, never a figure that is not standing on the lifter. */}
         {tracking.aligned ? (
           <BodyOverlay
             pose={tracking.pose}
@@ -392,17 +374,13 @@ export function LiveStage({
             height={height}
             dimmed={paused}
           />
-        ) : liveMeshSource === 'rig' ? (
-          <MeshView3D frame={meshFrame} width={width} height={height} dimmed={paused} />
         ) : null}
       </View>
 
-      {/* The instrument stopped measuring. Whether the link dropped or a
-          development build slipped the simulator in behind a real source, the
-          body on screen is no longer the lifter's — and a Mesh that looks
-          alive while nothing is being measured is the one failure mode that
-          can get somebody hurt. Say it in words nobody can miss. */}
-      {rigLinkLost || (sources.poseOrigin !== 'sim' && liveMeshSource === 'sim') ? (
+      {/* The Rig dropped mid-set. The camera is still measuring, so the set
+          goes on — but its sensors have left the grading, and the lifter
+          should know the colours now come from the picture alone. */}
+      {rigLinkLost ? (
         <View
           style={{
             position: 'absolute',
@@ -410,7 +388,7 @@ export function LiveStage({
             left: 24,
             right: 24,
             alignItems: 'center',
-            paddingVertical: 14,
+            paddingVertical: 12,
             paddingHorizontal: 16,
             backgroundColor: 'rgba(255,194,75,0.14)',
             borderWidth: 1.5,
@@ -419,14 +397,10 @@ export function LiveStage({
           }}
         >
           <AppText variant="h3" color={color.warn} align="center">
-            {rigLinkLost ? 'RIG LINK LOST' : 'NOT YOUR BODY'}
+            RIG LINK LOST
           </AppText>
           <AppText variant="nano" color={color.warn} align="center" style={{ marginTop: 4 }}>
-            {rigLinkLost
-              ? 'THE MESH IS FROZEN. THIS SET IS NO LONGER BEING GRADED.'
-              : sources.poseOrigin === 'rig'
-                ? 'THE RIG STOPPED SENDING. NOTHING HERE IS MEASURED FROM YOU.'
-                : 'THE CAMERA STOPPED TRACKING. NOTHING HERE IS MEASURED FROM YOU.'}
+            GRADING FROM THE CAMERA ONLY UNTIL THE RIG RECONNECTS
           </AppText>
         </View>
       ) : null}
@@ -454,7 +428,8 @@ export function LiveStage({
             // whether the figure is standing on the lifter or still being
             // solved — the one link in the camera path the camera's own
             // telemetry cannot see
-            liveMeshSource === 'camera' ? (tracking.aligned ? 'BODY PLACED' : 'SOLVING') : null,
+            tracking.aligned ? 'BODY PLACED' : 'SOLVING',
+            sources.rigLinked ? (rigLinkLost ? 'RIG LOST' : 'RIG') : null,
             cameraLive ? (cameraReady ? 'CAM LIVE' : 'CAM WAKING') : null,
             aiKey ? null : 'AI OFFLINE',
           ]

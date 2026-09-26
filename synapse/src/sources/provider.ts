@@ -1,35 +1,29 @@
 import { RigCalibration } from '@/src/engine/rigBody';
 import type { ExerciseSpec } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
-import { useSettingsStore } from '@/src/store/settingsStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
-import { RigPoseSource } from './udp/RigPoseSource';
 import { rigLink, storedCalibration } from './udp/rigLink';
 import type { PoseSource, SensorSource } from './types';
 
 /**
- * Chooses the set's instrument in exactly one place (§2.6).
+ * Chooses the set's instruments, in exactly one place (§2.6).
  *
- * The Rig is the instrument: connect it first, then train. Its five IMUs are
- * what the set is graded from. The camera is optional and only shows — it
- * places the exoskeleton over the lifter's picture so the fault is visible on
- * their body — and never grades. With no linked Rig there is no set, except
- * in developer mode, where the camera measures the set on its own.
+ * The app works one way. The camera films the lifter; MediaPipe finds their
+ * pose; the 3D mannequin is tracked onto their own picture; the set is
+ * graded from that pose. The Rig is optional: when it is linked its five IMUs
+ * are fused into the grading and handed to the technique evaluator, and the
+ * body on screen is still the one the camera placed.
  *
- * The simulator never drives a set, in any build: a body moved by a script
- * is exactly the plausible-looking fake this app exists not to show. It
- * lives on in the tests.
+ * Nothing stands in for a missing instrument. With no camera that can
+ * measure there is no set, and the simulator never drives one in any build —
+ * a body moved by a script is exactly the fake this app exists not to show.
+ * It lives on in the tests.
  */
 export interface SourceBundle {
-  /** what draws the body and drives the engine */
+  /** what draws the body and drives the engine: the camera */
   pose: PoseSource;
-  /**
-   * The camera's detector for this set. Beside a linked Rig it only places
-   * the exoskeleton on the lifter's picture — to show where the fault is —
-   * and never feeds grading: that comes from the Rig alone. Null when there
-   * is no camera or no detector.
-   */
+  /** the camera's pose source — the same object as `pose` */
   camera: PoseSource | null;
   sensor: SensorSource | null;
   /** false when the sensor is the app-shared Rig link — the set must not stop it */
@@ -40,93 +34,62 @@ export interface SourceBundle {
   poseIsReal: boolean;
   /** what is actually drawing the Mesh, for the HUD status strip */
   poseOrigin: 'sim' | 'camera' | 'rig';
-  /** called as the live set begins: starts a camera running beside the Rig */
+  /** a Rig was linked when the set began, and its sensors join the grading */
+  rigLinked: boolean;
+  /** called as the live set begins */
   startSet(): void;
   dispose(): void;
 }
 
 /**
- * Developer mode: sets may start without the Rig. Always on in a development
- * build; in an installed APK it is the Profile → Developer switch.
+ * Can a set start right now? When the camera can measure. The Rig is
+ * optional: linked, it adds its sensors to the grading; not linked, the
+ * camera grades on its own.
  */
-export function developerMode(): boolean {
-  return __DEV__ || useSettingsStore.getState().devSkipRig;
-}
-
-/** Can a set start right now? With a linked Rig — or without one, in developer mode. */
-export function canStartSet(): boolean {
-  return rigIsLinked() || developerMode();
+export function canStartSet(camGranted: boolean): boolean {
+  return camGranted && CameraPoseSource.available();
 }
 
 function rigIsLinked(): boolean {
   return useConnectionStore.getState().mode === 'linked' && rigLink.active !== null;
 }
 
+/**
+ * One way a set runs: the camera films the lifter, the 3D mannequin is
+ * tracked onto their picture, and the set is graded from that pose — plus
+ * the Rig's sensors whenever a Rig is linked. There is no other mode.
+ */
 export function createSetSources(
   ex: ExerciseSpec,
   opts: {
     camGranted: boolean;
   },
 ): SourceBundle | null {
-  // the linked Rig grades the set and, without a camera, draws the body
+  void ex;
+  // no camera that can measure, no set: the body on screen is always the
+  // lifter's own, placed on their picture
+  if (!canStartSet(opts.camGranted)) return null;
+
   const rigLive = rigIsLinked() ? rigLink.active : null;
   const calibration = rigLive ? storedCalibration() : new RigCalibration();
-  const cameraViable = opts.camGranted && CameraPoseSource.available();
-
-  let pose: PoseSource;
-  let poseOrigin: SourceBundle['poseOrigin'];
-  let rigPose: RigPoseSource | null = null;
-  let camera: PoseSource | null = null;
-  /** a camera that runs next to the Rig, owned (started and stopped) here */
-  let companionCamera: CameraPoseSource | null = null;
-  /** developer mode with no Rig: the camera measures and draws on its own */
-  let cameraOnly = false;
-
-  if (rigLive) {
-    // The exoskeleton draws its own body. Nothing stands in for it when it
-    // goes quiet — the live screen reports the loss instead of animating a
-    // body that is not being measured.
-    rigPose = new RigPoseSource(rigLive, calibration);
-    pose = rigPose;
-    poseOrigin = 'rig';
-    if (cameraViable) {
-      companionCamera = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
-      camera = companionCamera;
-    }
-  } else if (developerMode() && cameraViable) {
-    // Developer mode, no Rig: the camera is the instrument. It tracks the
-    // lifter, places the 3D figure on them, and the rule engine grades the
-    // pose it measures — the camera path end to end, testable on a phone
-    // with nothing strapped on.
-    pose = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
-    camera = pose;
-    poseOrigin = 'camera';
-    cameraOnly = true;
-  } else {
-    // no instrument, no set
-    return null;
-  }
-
-  const sensor: SensorSource | null = rigLive;
-  const ownsSensor = rigLive === null;
+  const camera = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
 
   return {
-    pose,
+    pose: camera,
     camera,
-    sensor,
-    ownsSensor,
+    // the Rig, when linked, is fused into the grading; it is shared app-wide
+    // and outlives the set, so the set never stops it
+    sensor: rigLive,
+    ownsSensor: false,
     calibration,
-    poseIsReal: rigLive !== null || cameraOnly,
-    poseOrigin,
+    poseIsReal: true,
+    poseOrigin: 'camera',
+    rigLinked: rigLive !== null,
     startSet() {
-      // rep zero starts a beat after the live screen mounts
-      // the engine starts `pose`; a camera beside the Rig is started here
-      companionCamera?.start();
+      // the engine starts the camera source itself
     },
     dispose() {
-      pose.stop();
-      rigPose?.stop();
-      companionCamera?.stop();
+      camera.stop();
       // the shared Rig link outlives the set on purpose
     },
   };

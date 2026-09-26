@@ -168,11 +168,11 @@ export default function TrainScreen() {
         return (
           <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: space.gutter, gap: space.md }}>
             <EmptyState
-              code="RIG NOT LINKED"
-              title="Connect your Rig"
-              body="The Rig grades every rep, so it comes first. Link it, then start the set. The camera is optional: it only shows the exoskeleton over your picture."
-              actionTitle="Connect the Rig"
-              onAction={openConnect}
+              code="CAMERA NEEDED"
+              title="Allow the camera"
+              body="Every set is measured from your picture: the camera finds your pose and the 3D body is placed on you. Allow the camera on the previous screen. The Rig is optional and adds its sensors when linked."
+              actionTitle="Back to the set"
+              onAction={() => setStage('arm')}
               tone="acid"
             />
             <PressableScale onPress={() => setStage('arm')} accessibilityRole="button" accessibilityLabel="Back">

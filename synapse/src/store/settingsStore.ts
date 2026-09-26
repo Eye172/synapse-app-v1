@@ -35,12 +35,6 @@ export interface SettingsState {
   rigQuatScalarLast: boolean;
   /** which local sensor axis runs along the body segment */
   rigSegmentAxis: '+x' | '-x' | '+y' | '-y' | '+z' | '-z';
-  /**
-   * Developer mode: a set may start without the Rig, measured and drawn from
-   * the camera alone. For testing the camera path on a phone with no Rig to
-   * hand; a development build behaves this way regardless.
-   */
-  devSkipRig: boolean;
   set: (p: Partial<Omit<SettingsState, 'set'>>) => void;
 }
 
@@ -59,7 +53,6 @@ export const useSettingsStore = create<SettingsState>()(
       rigCalibration: {},
       rigQuatScalarLast: false,
       rigSegmentAxis: '+z',
-      devSkipRig: false,
       set: (p) => set(p),
     }),
     {

@@ -33,7 +33,7 @@ pages pick up the new code.
 To build an APK yourself, see **Build the APK locally** in `README.md`. To give a
 build to a tester, run the GitHub Actions workflow. Every run publishes a Release.
 
-**No Rig to hand?** Turn on developer mode on the phone (**Profile → DEVELOPER → "Sets without the Rig"**) to run a set from the camera alone. A development build is always in this mode. It exercises the camera, tracking and overlay; your evaluator still receives `rigBody: null` there, so test it against the simulator (section 5).
+**No Rig to hand?** Sets run from the camera alone — the Rig is optional. That exercises the camera, tracking and overlay; your evaluator receives `rigBody: null` without a Rig, so test it against the simulator (section 5).
 
 ## 2. Where your code goes
 
@@ -109,7 +109,7 @@ What happens to it, already implemented:
 - `worst` takes over the live screen's fault chip (DRIFT at ≥ 0.55, FAULT at ≥ 1) whenever it is worse than the rule engine's finding. At severity 1 it is also marked on the Review timeline.
 - `worst` is also **spoken with a vibration** (from 0.55; a harder buzz at 1), through the same coach that speaks the rule engine's corrections. It has the same limits: at most one correction every 4 s, and the same finding at most once every 9 s unless it gets worse. On a frame where both graders find something, the worse one speaks; on a tie the rule engine does. This is `techniqueFinding()` in `src/coach/RuleCoach.ts`.
 
-**What colour means, in one place:** `src/theme/tokens.ts` → `meshSeverityColor(s)`: turquoise at 0, amber around 0.5, red at 1. You only return numbers; the renderers (`BodyOverlay` on the camera, `MeshView3D` for the Rig) paint each segment from them. Segment ids and the joints each covers are in `src/engine/skeleton.ts`.
+**What colour means, in one place:** `src/theme/tokens.ts` → `meshSeverityColor(s)`: turquoise at 0, amber around 0.5, red at 1. You only return numbers; the renderer (`BodyOverlay`, the 3D body on the camera picture) paints each segment from them. Segment ids and the joints each covers are in `src/engine/skeleton.ts`.
 - Your output is **sanitized** before it is used: severities are clamped to 0…1, NaN values and unknown segment ids are dropped, and a `worst` without a label is ignored. If your evaluator throws, the frame falls back to "not checked". A bug in grading can't crash the screen or paint a wrong colour.
 
 ## 4a. Ready-made commands for lighting up the body — `src/technique/highlight.ts`
@@ -188,7 +188,7 @@ then use the real Rig.
 | `synapse/src/sources/udp/` | Rig link: UDP, protocol parser, link state |
 | `synapse/src/sources/camera/` | camera detector seam + bridge from the native module |
 | `synapse/src/vision/` | tracker, camera solve, body proportions |
-| `synapse/src/ui/` | renderer (`BodyOverlay`, `MeshView3D`, `facets.ts` colours) |
+| `synapse/src/ui/` | renderer (`BodyOverlay`, `facets.ts` colours) |
 | `synapse/src/train/` | training flow screens; `LiveStage.tsx` is the live set |
 | `synapse/modules/rig-udp`, `modules/pose-vision` | native Kotlin: UDP receiver; CameraX + MediaPipe |
 | `harness/`, `live/` | browser test pages using the app's own code |

@@ -53,23 +53,12 @@ export function ArmStage({
   const setSetting = useSettingsStore((s) => s.set);
   const camDenied = camPerm?.granted === false && camPerm?.canAskAgain === false;
   const rigLinked = mode === 'linked';
-  // the camera only shows: with a detector it lays the exoskeleton over the
-  // picture, without one the Rig's own figure is drawn instead
-  const cameraOverlay = camGranted && CameraPoseSource.available();
-  // developer mode lets a set start with no Rig: the camera measures it, or
-  // (in a development build with no detector) the simulator stands in
-  const devSkipRig = useSettingsStore((s) => s.devSkipRig);
-  const developer = __DEV__ || devSkipRig;
-  const cameraOnly = !rigLinked && developer && cameraOverlay;
-  const gradedBy = rigLinked
-    ? 'RIG · FULL BODY'
-    : cameraOnly
-      ? 'CAMERA · DEVELOPER MODE'
-      : developer
-        ? 'GRANT THE CAMERA ABOVE'
-        : 'CONNECT THE RIG FIRST';
-  const gradedTint = rigLinked ? color.mesh : developer ? color.warn : color.error;
-  const shownAs = cameraOverlay ? 'EXOSKELETON OVER CAMERA' : 'RIG FIGURE';
+  // One way to train: the camera measures and the 3D body is placed on the
+  // lifter's picture. The Rig is optional and, when linked, joins the grading.
+  const cameraReady = camGranted && CameraPoseSource.available();
+  const gradedBy = !cameraReady ? 'GRANT THE CAMERA ABOVE' : rigLinked ? 'CAMERA + RIG' : 'CAMERA';
+  const gradedTint = cameraReady ? color.mesh : color.warn;
+  const shownAs = '3D BODY ON YOUR PICTURE';
 
   return (
     <ScrollView contentContainerStyle={{ paddingHorizontal: space.gutter, paddingBottom: 48, gap: space.sm }} showsVerticalScrollIndicator={false}>
@@ -84,11 +73,18 @@ export function ArmStage({
         </AppText>
         <StatusLine k="GRADED BY" v={gradedBy} tint={gradedTint} />
         <StatusLine k="SHOWN AS" v={shownAs} tint={color.mesh} />
-        <StatusLine
-          k="RIG"
-          v={mode.toUpperCase()}
-          tint={mode === 'linked' ? color.acid : mode === 'searching' ? color.warn : color.textLo}
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <StatusLine
+            k="RIG · OPTIONAL"
+            v={mode.toUpperCase()}
+            tint={mode === 'linked' ? color.acid : mode === 'searching' ? color.warn : color.textLo}
+          />
+          {!rigLinked ? (
+            <PressableScale onPress={onConnect} accessibilityRole="button" accessibilityLabel="Connect the Rig">
+              <Chip label="CONNECT" tint={color.mesh} />
+            </PressableScale>
+          ) : null}
+        </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <StatusLine
             k="CAMERA"
@@ -179,11 +175,11 @@ export function ArmStage({
         </AppText>
       ) : null}
 
-      {rigLinked || cameraOnly ? (
-        <PrimaryButton title="Begin positioning" sub="THE GHOST FRAME WILL GUIDE YOU" onPress={onBegin} />
-      ) : (
-        <PrimaryButton title="Connect the Rig" sub="THE RIG FIRST · THEN THE SET" onPress={onConnect} />
-      )}
+      <PrimaryButton
+        title={cameraReady ? 'Begin positioning' : 'Allow the camera'}
+        sub={cameraReady ? 'THE GHOST FRAME WILL GUIDE YOU' : 'THE SET IS MEASURED FROM YOUR PICTURE'}
+        onPress={cameraReady ? onBegin : () => requestCam()}
+      />
     </ScrollView>
   );
 }

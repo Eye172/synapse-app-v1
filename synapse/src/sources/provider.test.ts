@@ -1,17 +1,16 @@
 import { EXERCISES } from '@/src/data/exercises';
 import { useConnectionStore } from '@/src/store/connectionStore';
-import { useSettingsStore } from '@/src/store/settingsStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
 import { canStartSet, createSetSources } from './provider';
 import { rigLink } from './udp/rigLink';
+import type { UdpSensorSource } from './udp/UdpSensorSource';
 
 /**
- * The promise the whole product rests on: Synapse grades what its sensors can
- * actually see. In a shipped build there is no simulator to fall back on, so a
- * set with no instrument must refuse to start rather than animate a plausible
- * body. These tests run with `__DEV__` forced false — the value a tester's APK
- * is compiled with.
+ * The app works one way: the camera measures the lifter and the 3D body is
+ * placed on their picture; the Rig is optional and joins the grading when
+ * linked. And the promise the product rests on: nothing stands in for a
+ * missing instrument — no camera, no set, and never a simulated body.
  */
 
 const squat = EXERCISES[0]!;
@@ -19,155 +18,70 @@ const squat = EXERCISES[0]!;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const g = globalThis as any;
 
-describe('source selection in a release build', () => {
+describe.each([
+  ['a release build', false],
+  ['a development build', true],
+])('source selection in %s', (_name, dev) => {
   let devWas: boolean;
 
   beforeEach(() => {
     devWas = g.__DEV__;
-    g.__DEV__ = false;
+    g.__DEV__ = dev;
     useConnectionStore.setState({ mode: 'offline' });
-    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(false);
-    jest.spyOn(rigLink, 'active', 'get').mockReturnValue(null);
-  });
-
-  afterEach(() => {
-    g.__DEV__ = devWas;
-    jest.restoreAllMocks();
-  });
-
-  it('refuses a set with no Rig linked', () => {
-    expect(canStartSet()).toBe(false);
-    expect(createSetSources(squat, { camGranted: false })).toBeNull();
-  });
-
-  it('refuses a camera-only set, even with a working detector', () => {
-    // the Rig comes first: the camera only shows, it never grades a set alone
-    (CameraPoseSource.available as jest.Mock).mockReturnValue(true);
-    expect(canStartSet()).toBe(false);
-    expect(createSetSources(squat, { camGranted: true })).toBeNull();
-  });
-
-  it('refuses when the app thinks it is linked but the socket is gone', () => {
-    useConnectionStore.setState({ mode: 'linked' });
-    expect(canStartSet()).toBe(false);
-    expect(createSetSources(squat, { camGranted: false })).toBeNull();
-  });
-
-  it('grades from the Rig and draws its own figure when there is no camera', () => {
-    useConnectionStore.setState({ mode: 'linked' });
-    const fakeRig = { onFrame: () => () => {}, onStatus: () => () => {}, status: 'active' };
-    (jest.spyOn(rigLink, 'active', 'get') as jest.SpyInstance).mockReturnValue(fakeRig);
-
-    expect(canStartSet()).toBe(true);
-    const bundle = createSetSources(squat, { camGranted: false });
-    expect(bundle!.poseOrigin).toBe('rig');
-    expect(bundle!.sensor).toBe(fakeRig);
-    expect(bundle!.camera).toBeNull();
-    bundle!.dispose();
-  });
-
-  it('runs the camera beside a linked Rig, to show the body, not to grade it', () => {
-    (CameraPoseSource.available as jest.Mock).mockReturnValue(true);
-    useConnectionStore.setState({ mode: 'linked' });
-    const fakeRig = { onFrame: () => () => {}, onStatus: () => () => {}, status: 'active' };
-    (jest.spyOn(rigLink, 'active', 'get') as jest.SpyInstance).mockReturnValue(fakeRig);
-
-    const bundle = createSetSources(squat, { camGranted: true });
-    expect(bundle!.poseOrigin).toBe('rig');
-    // the camera places the exoskeleton on the picture; the Rig stays the pose
-    // source the engine grades from
-    expect(bundle!.camera).not.toBeNull();
-    expect(bundle!.camera).not.toBe(bundle!.pose);
-    bundle!.dispose();
-  });
-
-  it('never produces a simulated body, whatever the inputs', () => {
-    for (const camGranted of [false, true]) {
-      for (const mode of ['offline', 'searching', 'linked'] as const) {
-        useConnectionStore.setState({ mode });
-        const bundle = createSetSources(squat, { camGranted });
-        expect(bundle?.poseOrigin).not.toBe('sim');
-        bundle?.dispose();
-      }
-    }
-  });
-});
-
-/**
- * Developer mode is the one way into a set with no Rig: for testing the
- * camera path on a phone. It is off in a tester's APK unless switched on in
- * Profile, and even then it needs a camera that can actually measure.
- */
-describe('developer mode in a release build', () => {
-  let devWas: boolean;
-
-  beforeEach(() => {
-    devWas = g.__DEV__;
-    g.__DEV__ = false;
-    useConnectionStore.setState({ mode: 'offline' });
-    useSettingsStore.setState({ devSkipRig: true });
-    jest.spyOn(rigLink, 'active', 'get').mockReturnValue(null);
-  });
-
-  afterEach(() => {
-    g.__DEV__ = devWas;
-    useSettingsStore.setState({ devSkipRig: false });
-    jest.restoreAllMocks();
-  });
-
-  it('lets a set start without the Rig', () => {
-    expect(canStartSet()).toBe(true);
-  });
-
-  it('measures and draws the set from the camera', () => {
     jest.spyOn(CameraPoseSource, 'available').mockReturnValue(true);
+    jest.spyOn(rigLink, 'active', 'get').mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    g.__DEV__ = devWas;
+    jest.restoreAllMocks();
+  });
+
+  it('measures the set from the camera, with no Rig needed', () => {
+    expect(canStartSet(true)).toBe(true);
     const s = createSetSources(squat, { camGranted: true })!;
-    expect(s).not.toBeNull();
     expect(s.poseOrigin).toBe('camera');
     expect(s.pose).toBeInstanceOf(CameraPoseSource);
     expect(s.camera).toBe(s.pose);
     expect(s.poseIsReal).toBe(true);
+    expect(s.rigLinked).toBe(false);
     expect(s.sensor).toBeNull();
     s.dispose();
   });
 
-  it('still starts nothing without a camera that can measure', () => {
-    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(false);
-    expect(createSetSources(squat, { camGranted: true })).toBeNull();
-  });
-
-  it('is off until switched on', () => {
-    useSettingsStore.setState({ devSkipRig: false });
-    expect(canStartSet()).toBe(false);
-  });
-});
-
-/**
- * The simulator never stands in for an instrument, not even in a development
- * build: a body moved by a script is the fake this app exists not to show.
- */
-describe('a development build', () => {
-  let devWas: boolean;
-  beforeEach(() => {
-    devWas = g.__DEV__;
-    g.__DEV__ = true;
-    useConnectionStore.setState({ mode: 'offline' });
-    jest.spyOn(rigLink, 'active', 'get').mockReturnValue(null);
-  });
-  afterEach(() => {
-    g.__DEV__ = devWas;
-    jest.restoreAllMocks();
-  });
-
-  it('starts no set with neither a Rig nor a camera, rather than simulating one', () => {
-    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(false);
+  it('starts no set without camera permission — and never simulates one', () => {
+    expect(canStartSet(false)).toBe(false);
     expect(createSetSources(squat, { camGranted: false })).toBeNull();
   });
 
-  it('measures from the camera when one is allowed', () => {
-    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(true);
+  it('starts no set on a build with no detector', () => {
+    (CameraPoseSource.available as jest.Mock).mockReturnValue(false);
+    expect(canStartSet(true)).toBe(false);
+    expect(createSetSources(squat, { camGranted: true })).toBeNull();
+  });
+
+  it('adds a linked Rig to the grading, and still draws from the camera', () => {
+    const rig = { kind: 'udp' } as unknown as UdpSensorSource;
+    (jest.spyOn(rigLink, 'active', 'get') as jest.SpyInstance).mockReturnValue(rig);
+    useConnectionStore.setState({ mode: 'linked' });
+
     const s = createSetSources(squat, { camGranted: true })!;
     expect(s.poseOrigin).toBe('camera');
+    expect(s.sensor).toBe(rig);
+    expect(s.rigLinked).toBe(true);
+    // the Rig link is app-wide and outlives the set
+    expect(s.ownsSensor).toBe(false);
     s.dispose();
+  });
+
+  it('never produces a simulated body, whatever the inputs', () => {
+    for (const camGranted of [true, false]) {
+      for (const available of [true, false]) {
+        (CameraPoseSource.available as jest.Mock).mockReturnValue(available);
+        const s = createSetSources(squat, { camGranted });
+        expect(s?.poseOrigin ?? 'none').not.toBe('sim');
+        s?.dispose();
+      }
+    }
   });
 });

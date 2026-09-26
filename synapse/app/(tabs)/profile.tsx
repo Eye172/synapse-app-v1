@@ -399,27 +399,6 @@ export default function ProfileScreen() {
             />
           </GlassCard>
 
-          <GlassCard>
-            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
-              DEVELOPER
-            </AppText>
-            <Row
-              label="Sets without the Rig"
-              sub={
-                settings.devSkipRig || __DEV__
-                  ? 'ON · THE CAMERA MEASURES AND DRAWS THE BODY'
-                  : 'OFF · A SET NEEDS THE RIG LINKED'
-              }
-              right={
-                <AppSwitch
-                  value={settings.devSkipRig || __DEV__}
-                  onValueChange={(v) => settings.set({ devSkipRig: v })}
-                  accessibilityLabel="Allow sets without the Rig"
-                />
-              }
-            />
-          </GlassCard>
-
           <AppText variant="nano" color={color.textLo} style={{ textAlign: 'center', paddingHorizontal: space.lg }}>
             SYNAPSE IS A TRAINING AID, NOT MEDICAL ADVICE. STOP IF YOU FEEL PAIN.
           </AppText>

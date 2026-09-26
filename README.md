@@ -29,46 +29,26 @@ detector are native modules and exist only in an Android build — see
 [Build the APK locally](#build-the-apk-locally). In a dev build (`__DEV__`) the
 simulator stands in for both, so the full training loop runs without hardware.
 
-## There is no demo mode
+## How the app works — one way
 
-**The Rig comes first.** A set is graded from the Rig's IMUs, so without a linked Rig it **does not start**: the Arm screen's only button is *Connect the Rig* (and a set begun anyway lands on `RIG NOT LINKED`). The camera is optional and never grades: it only draws the exoskeleton over the lifter's picture, coloured by the Rig's grading, to show where the fault is. If the Rig drops mid-set, the Mesh freezes and a full-width `RIG LINK LOST` banner says the set is no longer being graded.
+**The camera measures, the 3D body is placed on you, the Rig is optional.** There is one scenario and no modes:
 
-This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
-
-A simulator does exist, but only for the test suite: no build, development or release, lets it drive a set.
-
-The one exception is **developer mode** (below): a switch that lets a set start without the Rig, measured by the camera alone, so the camera path can be tested on a phone with nothing strapped on. It is off in an installed APK until someone turns it on.
-
-## Developer mode — a set with no Rig
-
-**What it is.** A set measured and drawn entirely from the phone's camera: the lifter sees their own picture, with the 3D mannequin tracked onto their body in real time (MediaPipe pose → bone lengths → camera solve → solids built in metres), coloured by the rule engine's grading of that pose. It is the laptop `live/` page, running inside the app.
-
-**How to turn it on.**
-
-| Build | Developer mode |
-|---|---|
-| Development build (`npx expo start`, `__DEV__` true) | always on |
-| Installed APK (release) | **Profile → DEVELOPER → "Sets without the Rig"** |
-
-Then: pick an exercise → on the Arm screen grant the camera → **GRADED BY** reads `CAMERA · DEVELOPER MODE` → *Begin positioning* → step back until hips and knees are in frame.
-
-**Which source runs** (`synapse/src/sources/provider.ts → createSetSources`):
+1. The camera films the lifter. MediaPipe finds their pose, 33 joints in two spaces, about 15 times a second.
+2. The body is measured (bone lengths, proportions), the lens that filmed it is solved, and a **3D mannequin built in metres is placed on the lifter's own picture**. It is drawn only once it stands on them; until then the screen shows the picture and `SOLVING`.
+3. The set is graded from that pose by the rule engine (angles, lean, depth, symmetry), and the grading colours the mannequin turquoise → amber → red.
+4. **The Rig is optional.** If it is linked when the set begins, its five IMUs are fused into the grading and handed to the technique evaluator (`HANDOFF.md`); the body on screen is still the one the camera placed. If it drops mid-set, a `RIG LINK LOST` banner says so and grading continues from the camera.
 
 | Situation | Grades the set | Draws the body |
 |---|---|---|
-| Rig linked, camera allowed | the Rig | 3D mannequin on the camera picture, coloured by the Rig |
-| Rig linked, no camera | the Rig | the Rig's 3D figure from a fixed angle |
-| No Rig, developer mode, camera with a detector | the rule engine, from the camera pose | 3D mannequin on the camera picture |
-| No Rig, no camera allowed | — the set does not start; the Arm screen asks for the camera (developer mode) or the Rig | — |
-| No Rig, developer mode off | — the set does not start; the Arm screen offers *Connect the Rig* | — |
+| camera allowed, no Rig | the rule engine, from the camera pose | 3D mannequin on the picture |
+| camera allowed, Rig linked | the camera pose **plus** the Rig's sensors | 3D mannequin on the picture |
+| camera not allowed, or no detector in the build | — the set does not start; the Arm screen's button reads *Allow the camera* | — |
 
-`developerMode()` in `provider.ts` is the single switch (`__DEV__ || settings.devSkipRig`); `canStartSet()` and the Arm screen both read it. Tests for every row above live in `src/sources/provider.test.ts`.
+It is decided in one place, `createSetSources` in `synapse/src/sources/provider.ts`, and every row above has a test in `provider.test.ts`. The Arm screen shows it as **GRADED BY** `CAMERA` or `CAMERA + RIG`, and **RIG · OPTIONAL** with a *Connect* button.
 
-**What it is not.** Developer mode does not make the camera a substitute for the Rig in a shipped product: technique grading by the evaluator still takes the Rig's data (`HANDOFF.md`). It exists so the camera, detector, tracking and overlay can be exercised on a real phone.
+**There is no demo mode.** Nothing stands in for a missing instrument: no camera, no set. A form coach that animates a plausible body while measuring nothing is worse than no coach — it teaches the lifter to trust it right up until the rep that hurts them. A simulator exists, but only for the test suite: no build, development or release, lets it drive a set.
 
-**Where it works.** An APK built with `modules/pose-vision` (a local build or a CI build), and the web build in a laptop browser (`npx expo start --web`), which uses the webcam through the same module. Expo Go has no detector, so no set starts there. **The simulator never drives a set, in any build** — it exists for the tests only.
-
-**What the body looks like.** On the camera path the 3D mannequin appears only once the camera has placed it on the lifter; until then the screen shows the picture alone and `SOLVING`. Position-lock shows the same tracked 3D body over the picture, with the ghost target as an outline.
+**Where it runs.** An APK built with `modules/pose-vision` (a local build or a CI build), and the web build in a laptop browser (`npx expo start --web`), which uses the webcam through the same module. Expo Go has no detector, so no set starts there.
 
 ### Run it
 
@@ -139,7 +119,7 @@ Two traps, both of which fail with a message that points somewhere else:
 | **AI Coach**: RuleCoach always-on (offline); optional Claude coach (`claude-haiku-4-5` in-set ≤8 words, `claude-sonnet-5` debrief) with hard no-fabrication guards | PT / clinical mode |
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only**. Sets end with **STOP**; auto-stop (15/30/60/90 s of lifting, pauses not counted) is optional and off by default | Opt-in human form review (the only path video would ever leave) |
 | **Camera pose on-device**: CameraX + MediaPipe Pose (`modules/pose-vision`), GPU with CPU fallback, one camera from position-lock to the last rep, a telemetry line at the bottom of the set screen (camera · detector · poses/s · latency) | |
-| **Developer mode**: sets without the Rig, measured by the camera (Profile → Developer) | |
+| **One scenario**: every set measured by the camera with the 3D body on the lifter; the Rig optional and fused into grading when linked | |
 | **Same camera path in a laptop browser**: `npx expo start --web` runs the app with the webcam and MediaPipe web — see *Running the app in a laptop browser* | |
 | **Technique-grading seam** wired end to end: `SetEngine` calls the evaluator every frame, its severities tint the body, its finding is shown and spoken — see `HANDOFF.md` | |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup, dark + paper themes | Social, marketplace, Play Billing, iOS |
@@ -385,7 +365,7 @@ cd synapse
 npx expo start --web --offline --max-workers 1
 ```
 
-Open the URL it prints → pick an exercise → on the Arm screen press **Request** and allow the camera in the browser → **GRADED BY** reads `CAMERA · DEVELOPER MODE` → *Begin positioning* → step back until hips and knees are in frame. A development build is always in developer mode, so no Rig is needed.
+Open the URL it prints → pick an exercise → on the Arm screen press **Request** and allow the camera in the browser → **GRADED BY** reads `CAMERA` → *Begin positioning* → step back until hips and knees are in frame. No Rig is needed.
 
 Differences from the phone, all deliberate:
 - **No recording** — the browser view reports `canRecord: false`.
@@ -514,14 +494,14 @@ at the neutral pose and read as a limb held still.
 Data flows one way: **sources → engine → screens → renderer**. Each layer depends only on the ones to its left. The UI never touches hardware, and the engine never touches React.
 
 ```
- sources/            engine/                 train/ (screens)         ui/ (renderer)
- udp/  Rig ──┐       setSession.ts           train.tsx (flow)         BodyOverlay (camera: solids on the body)
- camera/ ────┼──►    ├ poseMetrics  angles   ├ PositionStage          MeshView3D  (rig: solids from an angle)
- sim/  dev ──┘       ├ rigBody     IMU→body  ├ LiveStage ──────────►  MeshView    (flat fallback)
-                     ├ fusion      pose+rig  ├ ReviewStage            facets.ts   severity → colour
-                     ├ ruleEngine  grades    └ ReportStage
-                     ├ repCounter  reps
-                     └ technique/evaluator ◄── the seam for technique grading (HANDOFF.md)
+ sources/                 engine/                 train/ (screens)         ui/ (renderer)
+ camera/  pose ────────►  setSession.ts           train.tsx (flow)         BodyOverlay  the 3D body on the picture
+ udp/     Rig (optional)─► ├ poseMetrics  angles  ├ PositionStage ───────►  facets.ts   severity → colour
+                          ├ rigBody     IMU→body  ├ LiveStage ───────────►  MeshView    the position-lock ghost outline
+                          ├ fusion      pose+rig  ├ ReviewStage
+                          ├ ruleEngine  grades    └ ReportStage
+                          ├ repCounter  reps
+                          └ technique/evaluator ◄── the seam for technique grading (HANDOFF.md)
 
  vision/ (camera only): tracker → cameraFit → proportions → useBodyTracking → BodyOverlay
 ```
@@ -531,14 +511,14 @@ Data flows one way: **sources → engine → screens → renderer**. Each layer 
 | Folder | Responsibility | Start with |
 |---|---|---|
 | `sources/` | **Where data comes from.** Each source implements `PoseSource` or `SensorSource` from `sources/types.ts`. `provider.ts` picks the sources for a set: the linked Rig grades it; the camera, if allowed, only shows the exoskeleton over the picture. Without a Rig no set starts (dev builds use the simulator) | `provider.ts` |
-| `sources/udp/` | The Rig link. `protocol.ts` parses every wire format and treats all input as untrusted. `UdpSensorSource` owns the socket and the link state. `rigLink.ts` holds the app-wide link and calibration. `RigPoseSource` turns rig frames into a body. `firmware.ts` holds the Rig's fixed network constants | `protocol.ts` |
+| `sources/udp/` | The Rig link. `protocol.ts` parses every wire format and treats all input as untrusted. `UdpSensorSource` owns the socket and the link state. `rigLink.ts` holds the app-wide link and calibration. `firmware.ts` holds the Rig's fixed network constants | `protocol.ts` |
 | `sources/camera/` | Camera pose. `PoseDetector.ts` is the detector registry, `CameraPoseSource` is the source, and `poseVisionBridge.ts` turns native MediaPipe events into observations | `poseVisionBridge.ts` |
 | `sources/sim/` | A deterministic simulator of a lifter and a Rig, with fault injection. Used only by tests and `__DEV__` builds; it can never reach a tester's APK | `simTimeline.ts` |
 | `engine/` | **The truth.** `SetEngine` (`setSession.ts`) runs a set. For every pose frame it derives metrics, fuses them with the Rig, grades them against the exercise's rules, counts reps, calls the technique evaluator, and emits one `EngineFrame`. Pure TypeScript, fully unit-tested | `setSession.ts`, `types.ts` |
 | `technique/` | **The seam for technique grading.** `evaluator.ts` is the contract, `highlight.ts` gives ready-made commands for lighting up the 3D body (`.fault('leftLeg', …)`, `.drift`, `.watch`, `.measure`), and `example.test.ts` is a worked example. See `HANDOFF.md` | `evaluator.ts`, `highlight.ts` |
 | `vision/` | Camera-only maths: One Euro smoothing, bone lengths, body proportions, the per-frame camera solve, and the viewport mapping between frame and screen | `tracker.ts`, `useBodyTracking.ts` |
 | `train/` | The training flow's screens (select → tutorial → arm → position → live → review → report). Also `SetCamera` (one camera for the whole set), `ClipRecorder` (a clip's lifecycle) and `recording.ts` (ephemeral files) | `app/train.tsx`, then `LiveStage.tsx` |
-| `ui/` | Components and the renderer. `bodyVolumes.ts` builds solids in metres, `facets.ts` turns them into coloured faces, and `BodyOverlay` / `MeshView3D` / `MeshView` draw them | `facets.ts` |
+| `ui/` | Components and the renderer. `bodyVolumes.ts` builds solids in metres, `facets.ts` turns them into coloured faces, and `BodyOverlay` draws them on the camera picture (`MeshView` only draws the position-lock ghost outline) | `facets.ts` |
 | `coach/` | `RuleCoach` (deterministic cues), `LLMCoach` (optional Claude rephrasing that never invents numbers), speech, haptics | `RuleCoach.ts` |
 | `data/` | The exercise catalogue with full rule specs, lesson videos, achievements | `exercises.ts` |
 | `store/` | zustand stores: settings, history (numbers only, never media), Rig connection state | — |
@@ -552,7 +532,7 @@ Data flows one way: **sources → engine → screens → renderer**. Each layer 
 
 ### One frame, end to end
 
-1. **Rig:** a UDP datagram goes to `UdpSensorSource`, then `parseRigPayload`, and becomes a `SensorFrame`. `RigPoseSource` builds landmarks through the calibration, and `SetEngine` keeps the frame plus its calibrated `rigBody`.
+1. **Rig:** a UDP datagram goes to `UdpSensorSource`, then `parseRigPayload`, and becomes a `SensorFrame`. `SetEngine` fuses the Rig's metrics into the grading and keeps the frame plus its calibrated `rigBody`.
 2. **Camera:** a CameraX frame goes to `PoseEngine` (MediaPipe), which fires an `onPose` event. `poseVisionBridge` fixes the axes and the clock, and `CameraPoseSource` emits a `PoseFrame` with image points, world points and the frame size. In parallel, `useBodyTracking` smooths the pose, measures the body and solves the camera.
 3. **Engine:** `SetEngine.onPose` runs `deriveMetrics` (camera points are made isotropic first), fuses the result with the Rig, grades it with `gradeFrame` against the exercise rules, runs the rep counter, calls `evaluateTechnique`, and emits `EngineFrame { grade, technique, severity }`.
 4. **Screen:** `LiveStage` tints the body by `frame.severity`, shows the worst finding in the fault chip, speaks the coach's cues and records the clip. The line at the bottom of the screen shows the camera's health.
