@@ -141,3 +141,33 @@ describe('developer mode in a release build', () => {
     expect(canStartSet()).toBe(false);
   });
 });
+
+/**
+ * The simulator never stands in for an instrument, not even in a development
+ * build: a body moved by a script is the fake this app exists not to show.
+ */
+describe('a development build', () => {
+  let devWas: boolean;
+  beforeEach(() => {
+    devWas = g.__DEV__;
+    g.__DEV__ = true;
+    useConnectionStore.setState({ mode: 'offline' });
+    jest.spyOn(rigLink, 'active', 'get').mockReturnValue(null);
+  });
+  afterEach(() => {
+    g.__DEV__ = devWas;
+    jest.restoreAllMocks();
+  });
+
+  it('starts no set with neither a Rig nor a camera, rather than simulating one', () => {
+    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(false);
+    expect(createSetSources(squat, { camGranted: false })).toBeNull();
+  });
+
+  it('measures from the camera when one is allowed', () => {
+    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(true);
+    const s = createSetSources(squat, { camGranted: true })!;
+    expect(s.poseOrigin).toBe('camera');
+    s.dispose();
+  });
+});

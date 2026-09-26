@@ -4,15 +4,17 @@ import { View, useWindowDimensions } from 'react-native';
 
 import { buzz } from '@/src/coach/haptics';
 import { speakCue } from '@/src/coach/speech';
-import type { ExerciseSpec, Landmark } from '@/src/engine/types';
+import type { ExerciseSpec, Landmark, PoseFrame } from '@/src/engine/types';
 import type { SourceBundle } from '@/src/sources/provider';
 import { ghostPose } from '@/src/sources/sim/kinematics';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
+import { BodyOverlay } from '@/src/ui/BodyOverlay';
 import { CornerBrackets, bracketTint } from '@/src/ui/CornerBrackets';
 import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
 import { ScanlineSweep } from '@/src/ui/ScanlineSweep';
+import { useBodyTracking } from '@/src/vision/useBodyTracking';
 import { coverViewport, landmarksToScreen } from '@/src/vision/viewport';
 
 import { alignmentScore } from './alignment';
@@ -42,6 +44,18 @@ export function PositionStage({
   const screenRef = useRef({ width, height, mirrored: facing === 'front' });
   screenRef.current = { width, height, mirrored: facing === 'front' };
   const ghost = useMemo(() => ghostPose(ex), [ex]);
+
+  // With a camera running, the body is shown as it is on the live set: the 3D
+  // mannequin tracked onto the lifter's own picture, not a flat skeleton. The
+  // tracker is subscribed to the camera whichever source grades the set.
+  const cameraSource = sources?.camera ?? (sources?.poseOrigin === 'camera' ? sources.pose : null);
+  const cameraRef = useRef(cameraSource);
+  cameraRef.current = cameraSource;
+  const subscribeCamera = useMemo(
+    () => (cb: (f: PoseFrame) => void) => cameraRef.current?.onPose(cb) ?? (() => {}),
+    [],
+  );
+  const tracking = useBodyTracking(subscribeCamera, { width, height, mirrored: facing === 'front' });
   const [frame, setFrame] = useState<MeshFrame | null>(null);
   const [score, setScore] = useState(0);
   const [hold, setHold] = useState(0);
@@ -142,7 +156,25 @@ export function PositionStage({
     <View style={{ flex: 1 }}>
       {!locked ? <ScanlineSweep tint="rgba(33,240,220,0.28)" durationMs={2100} /> : null}
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        <MeshView frame={frame} ghost={locked ? null : ghost} width={width} height={height} />
+        {tracking.aligned ? (
+          <BodyOverlay
+            pose={tracking.pose}
+            camera={tracking.camera}
+            viewport={tracking.viewport ?? undefined}
+            width={width}
+            height={height}
+          />
+        ) : null}
+      </View>
+      <View style={{ position: 'absolute', top: 0, left: 0 }}>
+        {/* the ghost is a target outline, not a body; the live body is the 3D
+            figure above whenever a camera places it */}
+        <MeshView
+          frame={cameraSource ? null : frame}
+          ghost={locked ? null : ghost}
+          width={width}
+          height={height}
+        />
       </View>
 
       <View style={{ position: 'absolute', top: space.xl + 26, left: 0, right: 0, alignItems: 'center', gap: 4 }}>

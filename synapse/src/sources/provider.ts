@@ -4,9 +4,6 @@ import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
-import { SimPoseSource } from './sim/SimPoseSource';
-import { SimSensorSource } from './sim/SimSensorSource';
-import { SimTimeline, defaultFaultScript, type FaultScript } from './sim/simTimeline';
 import { RigPoseSource } from './udp/RigPoseSource';
 import { rigLink, storedCalibration } from './udp/rigLink';
 import type { PoseSource, SensorSource } from './types';
@@ -17,8 +14,12 @@ import type { PoseSource, SensorSource } from './types';
  * The Rig is the instrument: connect it first, then train. Its five IMUs are
  * what the set is graded from. The camera is optional and only shows — it
  * places the exoskeleton over the lifter's picture so the fault is visible on
- * their body — and never grades. With no linked Rig there is no set; a
- * development build substitutes the simulator, a tester's build never does.
+ * their body — and never grades. With no linked Rig there is no set, except
+ * in developer mode, where the camera measures the set on its own.
+ *
+ * The simulator never drives a set, in any build: a body moved by a script
+ * is exactly the plausible-looking fake this app exists not to show. It
+ * lives on in the tests.
  */
 export interface SourceBundle {
   /** what draws the body and drives the engine */
@@ -39,7 +40,7 @@ export interface SourceBundle {
   poseIsReal: boolean;
   /** what is actually drawing the Mesh, for the HUD status strip */
   poseOrigin: 'sim' | 'camera' | 'rig';
-  /** rebase the sim timeline so the set starts at rep zero */
+  /** called as the live set begins: starts a camera running beside the Rig */
   startSet(): void;
   dispose(): void;
 }
@@ -72,13 +73,6 @@ export function createSetSources(
   const calibration = rigLive ? storedCalibration() : new RigCalibration();
   const cameraViable = opts.camGranted && CameraPoseSource.available();
 
-  // The simulator is a development instrument. `__DEV__` is false in the APK a
-  // tester installs, so none of this exists in their build.
-  const simEnabled = __DEV__;
-  const timeline = simEnabled ? new SimTimeline(ex, { t0: Date.now(), fault: defaultFaultScript(ex) }) : null;
-  const simPose = timeline ? new SimPoseSource(timeline) : null;
-  const simSensor = timeline ? new SimSensorSource(timeline) : null;
-
   let pose: PoseSource;
   let poseOrigin: SourceBundle['poseOrigin'];
   let rigPose: RigPoseSource | null = null;
@@ -108,15 +102,12 @@ export function createSetSources(
     camera = pose;
     poseOrigin = 'camera';
     cameraOnly = true;
-  } else if (simPose) {
-    pose = simPose;
-    poseOrigin = 'sim';
   } else {
     // no instrument, no set
     return null;
   }
 
-  const sensor: SensorSource | null = rigLive ?? (cameraOnly ? null : simSensor);
+  const sensor: SensorSource | null = rigLive;
   const ownsSensor = rigLive === null;
 
   return {
@@ -129,7 +120,6 @@ export function createSetSources(
     poseOrigin,
     startSet() {
       // rep zero starts a beat after the live screen mounts
-      timeline?.rebase(Date.now() + 400);
       // the engine starts `pose`; a camera beside the Rig is started here
       companionCamera?.start();
     },
@@ -137,8 +127,6 @@ export function createSetSources(
       pose.stop();
       rigPose?.stop();
       companionCamera?.stop();
-      simPose?.stop();
-      simSensor?.stop();
       // the shared Rig link outlives the set on purpose
     },
   };

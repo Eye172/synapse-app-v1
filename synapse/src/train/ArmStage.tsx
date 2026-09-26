@@ -60,15 +60,14 @@ export function ArmStage({
   // (in a development build with no detector) the simulator stands in
   const devSkipRig = useSettingsStore((s) => s.devSkipRig);
   const developer = __DEV__ || devSkipRig;
+  const cameraOnly = !rigLinked && developer && cameraOverlay;
   const gradedBy = rigLinked
     ? 'RIG · FULL BODY'
-    : developer && cameraOverlay
+    : cameraOnly
       ? 'CAMERA · DEVELOPER MODE'
-      : __DEV__
-        ? 'SIMULATOR · DEV BUILD'
-        : developer
-          ? 'DEVELOPER MODE · GRANT THE CAMERA'
-          : 'CONNECT THE RIG FIRST';
+      : developer
+        ? 'GRANT THE CAMERA ABOVE'
+        : 'CONNECT THE RIG FIRST';
   const gradedTint = rigLinked ? color.mesh : developer ? color.warn : color.error;
   const shownAs = cameraOverlay ? 'EXOSKELETON OVER CAMERA' : 'RIG FIGURE';
 
@@ -180,7 +179,7 @@ export function ArmStage({
         </AppText>
       ) : null}
 
-      {rigLinked || developer ? (
+      {rigLinked || cameraOnly ? (
         <PrimaryButton title="Begin positioning" sub="THE GHOST FRAME WILL GUIDE YOU" onPress={onBegin} />
       ) : (
         <PrimaryButton title="Connect the Rig" sub="THE RIG FIRST · THEN THE SET" onPress={onConnect} />

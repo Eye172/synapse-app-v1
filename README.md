@@ -35,7 +35,7 @@ simulator stands in for both, so the full training loop runs without hardware.
 
 This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
 
-A simulator does exist — it drives the test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
+A simulator does exist, but only for the test suite: no build, development or release, lets it drive a set.
 
 The one exception is **developer mode** (below): a switch that lets a set start without the Rig, measured by the camera alone, so the camera path can be tested on a phone with nothing strapped on. It is off in an installed APK until someone turns it on.
 
@@ -59,14 +59,16 @@ Then: pick an exercise → on the Arm screen grant the camera → **GRADED BY** 
 | Rig linked, camera allowed | the Rig | 3D mannequin on the camera picture, coloured by the Rig |
 | Rig linked, no camera | the Rig | the Rig's 3D figure from a fixed angle |
 | No Rig, developer mode, camera with a detector | the rule engine, from the camera pose | 3D mannequin on the camera picture |
-| No Rig, development build, no detector (web preview, Expo Go) | the simulator | 3D figure from a fixed angle |
+| No Rig, no camera allowed | — the set does not start; the Arm screen asks for the camera (developer mode) or the Rig | — |
 | No Rig, developer mode off | — the set does not start; the Arm screen offers *Connect the Rig* | — |
 
 `developerMode()` in `provider.ts` is the single switch (`__DEV__ || settings.devSkipRig`); `canStartSet()` and the Arm screen both read it. Tests for every row above live in `src/sources/provider.test.ts`.
 
 **What it is not.** Developer mode does not make the camera a substitute for the Rig in a shipped product: technique grading by the evaluator still takes the Rig's data (`HANDOFF.md`). It exists so the camera, detector, tracking and overlay can be exercised on a real phone.
 
-**Where it cannot work.** The web preview and Expo Go have no native detector, so there the simulator stands in. The camera path needs an APK built with `modules/pose-vision` — a local build (see *Build the APK locally*) or a CI build.
+**Where it works.** An APK built with `modules/pose-vision` (a local build or a CI build), and the web build in a laptop browser (`npx expo start --web`), which uses the webcam through the same module. Expo Go has no detector, so no set starts there. **The simulator never drives a set, in any build** — it exists for the tests only.
+
+**What the body looks like.** On the camera path the 3D mannequin appears only once the camera has placed it on the lifter; until then the screen shows the picture alone and `SOLVING`. Position-lock shows the same tracked 3D body over the picture, with the ghost target as an outline.
 
 ### Run it
 

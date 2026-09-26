@@ -370,17 +370,18 @@ export function LiveStage({
     // background has to let it through; without one, this is the void.
     <View style={{ flex: 1, backgroundColor: cameraLive ? 'transparent' : color.void }}>
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        {/* Always a 3D figure, in one of two placements.
+        {/* The body is always 3D, and never made up.
 
             With a camera that has been solved, the mannequin is built in
             metres around the lifter's own measurements and pushed back
             through the lens that saw them, so it lands on their body —
             translucent over the picture, coloured by the Rig's grading.
 
-            Until the camera has solved (or with no camera at all), the same
-            solids are shown from a fixed angle rather than planted on the
-            picture: a figure placed before the solve converges would sit
-            confidently in the wrong place. */}
+            With the Rig drawing and no solved camera, the Rig's own measured
+            body is shown from a fixed angle. With the camera as the only
+            instrument, nothing is drawn until the solve converges — the
+            picture alone, and SOLVING in the status strip — because a figure
+            that is not standing on the lifter would be a figure made up. */}
         {tracking.aligned ? (
           <BodyOverlay
             pose={tracking.pose}
@@ -391,9 +392,9 @@ export function LiveStage({
             height={height}
             dimmed={paused}
           />
-        ) : (
+        ) : liveMeshSource === 'rig' ? (
           <MeshView3D frame={meshFrame} width={width} height={height} dimmed={paused} />
-        )}
+        ) : null}
       </View>
 
       {/* The instrument stopped measuring. Whether the link dropped or a
