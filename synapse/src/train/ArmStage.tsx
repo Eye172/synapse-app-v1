@@ -1,4 +1,4 @@
-import { useCameraPermissions } from 'expo-camera';
+import type { PermissionResponse } from 'expo-camera';
 import React from 'react';
 import { ScrollView, Switch, View } from 'react-native';
 
@@ -39,15 +39,24 @@ export function ArmStage({
   onConfig,
   onBegin,
   onConnect,
+  camPerm,
+  onRequestCamera,
 }: {
   ex: ExerciseSpec;
   config: TrainConfig;
   onConfig: (c: TrainConfig) => void;
   onBegin: () => void;
-  /** open the Connect screen — the only action offered until the Rig links */
+  /** open the Connect screen, where the build can reach a Rig */
   onConnect: () => void;
+  /**
+   * The camera permission, owned by the training flow. Not read here with a
+   * hook of its own: two `useCameraPermissions` hooks do not share state, so
+   * a grant made through this screen's hook left the flow's copy saying "not
+   * granted" and the set refused to start with the camera allowed.
+   */
+  camPerm: PermissionResponse | null;
+  onRequestCamera: () => void;
 }) {
-  const [camPerm, requestCam] = useCameraPermissions();
   const mode = useConnectionStore((s) => s.mode);
   const camGranted = camPerm?.granted === true;
   const facing = useSettingsStore((s) => s.cameraFacing);
@@ -56,8 +65,15 @@ export function ArmStage({
   const rigLinked = mode === 'linked';
   // One way to train: the camera measures and the 3D body is placed on the
   // lifter's picture. The Rig is optional and, when linked, joins the grading.
-  const cameraReady = camGranted && CameraPoseSource.available();
-  const gradedBy = !cameraReady ? 'GRANT THE CAMERA ABOVE' : rigLinked ? 'CAMERA + RIG' : 'CAMERA';
+  const detector = CameraPoseSource.available();
+  const cameraReady = camGranted && detector;
+  const gradedBy = !camGranted
+    ? 'ALLOW THE CAMERA BELOW'
+    : !detector
+      ? 'NO POSE DETECTOR IN THIS BUILD'
+      : rigLinked
+        ? 'CAMERA + RIG'
+        : 'CAMERA';
   const gradedTint = cameraReady ? color.mesh : color.warn;
   const shownAs = '3D BODY ON YOUR PICTURE';
 
@@ -95,7 +111,7 @@ export function ArmStage({
             tint={camGranted ? color.ok : camDenied ? color.warn : color.textLo}
           />
           {!camGranted && !camDenied ? (
-            <PressableScale onPress={() => requestCam()} accessibilityRole="button" accessibilityLabel="Request camera permission">
+            <PressableScale onPress={() => onRequestCamera()} accessibilityRole="button" accessibilityLabel="Request camera permission">
               <Chip label="REQUEST" tint={color.acid} filled />
             </PressableScale>
           ) : null}
@@ -178,11 +194,17 @@ export function ArmStage({
         </AppText>
       ) : null}
 
-      <PrimaryButton
-        title={cameraReady ? 'Begin positioning' : 'Allow the camera'}
-        sub={cameraReady ? 'STAND WHERE THE CAMERA SEES ALL OF YOU' : 'THE SET IS MEASURED FROM YOUR PICTURE'}
-        onPress={cameraReady ? onBegin : () => requestCam()}
-      />
+      {camGranted && !detector ? (
+        <AppText variant="nano" color={color.warn} align="center">
+          THIS BUILD HAS NO POSE DETECTOR (EXPO GO) — INSTALL THE APK TO TRAIN.
+        </AppText>
+      ) : (
+        <PrimaryButton
+          title={cameraReady ? 'Begin positioning' : 'Allow the camera'}
+          sub={cameraReady ? 'STAND WHERE THE CAMERA SEES ALL OF YOU' : 'THE SET IS MEASURED FROM YOUR PICTURE'}
+          onPress={cameraReady ? onBegin : () => onRequestCamera()}
+        />
+      )}
     </ScrollView>
   );
 }

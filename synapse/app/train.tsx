@@ -1,7 +1,7 @@
 import { useCameraPermissions } from 'expo-camera';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, useWindowDimensions } from 'react-native';
+import { Platform, View, useWindowDimensions } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -48,7 +48,9 @@ export default function TrainScreen() {
   const [ex, setEx] = useState<ExerciseSpec | null>(initialEx);
   const [stage, setStage] = useState<Stage>(initialEx ? 'loading' : 'select');
   const [config, setConfig] = useState<TrainConfig>({ record: false, durationSec: null });
-  const [camPerm] = useCameraPermissions();
+  // The one reading of the camera permission for the whole flow. The Arm
+  // screen asks through it too, so a grant is seen here the moment it lands.
+  const [camPerm, requestCamPerm] = useCameraPermissions();
   const camGranted = camPerm?.granted === true;
   const { width, height } = useWindowDimensions();
 
@@ -89,13 +91,13 @@ export default function TrainScreen() {
     };
   }, []);
 
-  const beginPositioning = () => {
+  const beginPositioning = (granted: boolean = camGranted) => {
     sourcesRef.current?.dispose();
     setCameraState(NO_CAMERA);
     setCameraFailed(false);
     setCameraFailure('');
     setTelemetry(NO_TELEMETRY);
-    const sources = createSetSources(ex!, { camGranted });
+    const sources = createSetSources(ex!, { camGranted: granted });
     if (sources === null) {
       // nothing can measure this set — say so rather than inventing one
       setStage('noSource');
@@ -162,24 +164,48 @@ export default function TrainScreen() {
         return ex ? <TutorialStage ex={ex} onContinue={() => setStage('arm')} /> : null;
       case 'arm':
         return ex ? (
-          <ArmStage ex={ex} config={config} onConfig={setConfig} onBegin={beginPositioning} onConnect={openConnect} />
+          <ArmStage
+            ex={ex}
+            config={config}
+            onConfig={setConfig}
+            onBegin={() => beginPositioning()}
+            onConnect={openConnect}
+            camPerm={camPerm}
+            onRequestCamera={() => void requestCamPerm()}
+          />
         ) : null;
       case 'noSource':
+        // Only reached when the camera cannot measure: not allowed, or no
+        // detector in this build. One way forward, named for what it does.
         return (
-          <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: space.gutter, gap: space.md }}>
-            <EmptyState
-              code="CAMERA NEEDED"
-              title="Allow the camera"
-              body="Every set is measured from your picture: the camera finds your pose and the 3D body is placed on you. Allow the camera on the previous screen. The Rig is optional and adds its sensors when linked."
-              actionTitle="Back to the set"
-              onAction={() => setStage('arm')}
-              tone="acid"
-            />
-            <PressableScale onPress={() => setStage('arm')} accessibilityRole="button" accessibilityLabel="Back">
-              <AppText variant="micro" color={color.textLo} align="center" style={{ paddingVertical: 8 }}>
-                BACK
-              </AppText>
-            </PressableScale>
+          <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: space.gutter }}>
+            {camGranted ? (
+              <EmptyState
+                code="NO POSE DETECTOR"
+                title="This build cannot measure you"
+                body="The camera is allowed, but this copy of the app has no pose detector (Expo Go). Install the APK, or run the web build in a browser."
+                actionTitle="Back"
+                onAction={() => setStage('arm')}
+                tone="error"
+              />
+            ) : (
+              <EmptyState
+                code="CAMERA NEEDED"
+                title="Allow the camera"
+                body={
+                  Platform.OS === 'web'
+                    ? 'Every set is measured from your picture. If the browser does not ask, the camera was blocked for this page: click the camera icon in the address bar, allow it, and press the button again.'
+                    : 'Every set is measured from your picture. If Android does not ask, the camera was turned off for Synapse: Settings → Apps → Synapse → Permissions → Camera.'
+                }
+                actionTitle="Allow the camera"
+                onAction={() => {
+                  void requestCamPerm().then((r) => {
+                    if (r.granted) beginPositioning(true);
+                  });
+                }}
+                tone="acid"
+              />
+            )}
           </View>
         );
       case 'position':
