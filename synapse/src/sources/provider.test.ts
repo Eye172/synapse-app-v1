@@ -1,5 +1,6 @@
 import { EXERCISES } from '@/src/data/exercises';
 import { useConnectionStore } from '@/src/store/connectionStore';
+import { useSettingsStore } from '@/src/store/settingsStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
 import { canStartSet, createSetSources } from './provider';
@@ -89,5 +90,54 @@ describe('source selection in a release build', () => {
         bundle?.dispose();
       }
     }
+  });
+});
+
+/**
+ * Developer mode is the one way into a set with no Rig: for testing the
+ * camera path on a phone. It is off in a tester's APK unless switched on in
+ * Profile, and even then it needs a camera that can actually measure.
+ */
+describe('developer mode in a release build', () => {
+  let devWas: boolean;
+
+  beforeEach(() => {
+    devWas = g.__DEV__;
+    g.__DEV__ = false;
+    useConnectionStore.setState({ mode: 'offline' });
+    useSettingsStore.setState({ devSkipRig: true });
+    jest.spyOn(rigLink, 'active', 'get').mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    g.__DEV__ = devWas;
+    useSettingsStore.setState({ devSkipRig: false });
+    jest.restoreAllMocks();
+  });
+
+  it('lets a set start without the Rig', () => {
+    expect(canStartSet()).toBe(true);
+  });
+
+  it('measures and draws the set from the camera', () => {
+    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(true);
+    const s = createSetSources(squat, { camGranted: true })!;
+    expect(s).not.toBeNull();
+    expect(s.poseOrigin).toBe('camera');
+    expect(s.pose).toBeInstanceOf(CameraPoseSource);
+    expect(s.camera).toBe(s.pose);
+    expect(s.poseIsReal).toBe(true);
+    expect(s.sensor).toBeNull();
+    s.dispose();
+  });
+
+  it('still starts nothing without a camera that can measure', () => {
+    jest.spyOn(CameraPoseSource, 'available').mockReturnValue(false);
+    expect(createSetSources(squat, { camGranted: true })).toBeNull();
+  });
+
+  it('is off until switched on', () => {
+    useSettingsStore.setState({ devSkipRig: false });
+    expect(canStartSet()).toBe(false);
   });
 });

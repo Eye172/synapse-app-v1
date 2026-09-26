@@ -56,8 +56,20 @@ export function ArmStage({
   // the camera only shows: with a detector it lays the exoskeleton over the
   // picture, without one the Rig's own figure is drawn instead
   const cameraOverlay = camGranted && CameraPoseSource.available();
-  const gradedBy = rigLinked ? 'RIG · FULL BODY' : __DEV__ ? 'SIMULATOR · DEV BUILD' : 'CONNECT THE RIG FIRST';
-  const gradedTint = rigLinked ? color.mesh : __DEV__ ? color.warn : color.error;
+  // developer mode lets a set start with no Rig: the camera measures it, or
+  // (in a development build with no detector) the simulator stands in
+  const devSkipRig = useSettingsStore((s) => s.devSkipRig);
+  const developer = __DEV__ || devSkipRig;
+  const gradedBy = rigLinked
+    ? 'RIG · FULL BODY'
+    : developer && cameraOverlay
+      ? 'CAMERA · DEVELOPER MODE'
+      : __DEV__
+        ? 'SIMULATOR · DEV BUILD'
+        : developer
+          ? 'DEVELOPER MODE · GRANT THE CAMERA'
+          : 'CONNECT THE RIG FIRST';
+  const gradedTint = rigLinked ? color.mesh : developer ? color.warn : color.error;
   const shownAs = cameraOverlay ? 'EXOSKELETON OVER CAMERA' : 'RIG FIGURE';
 
   return (
@@ -168,7 +180,7 @@ export function ArmStage({
         </AppText>
       ) : null}
 
-      {rigLinked || __DEV__ ? (
+      {rigLinked || developer ? (
         <PrimaryButton title="Begin positioning" sub="THE GHOST FRAME WILL GUIDE YOU" onPress={onBegin} />
       ) : (
         <PrimaryButton title="Connect the Rig" sub="THE RIG FIRST · THEN THE SET" onPress={onConnect} />

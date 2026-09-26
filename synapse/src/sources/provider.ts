@@ -1,6 +1,7 @@
 import { RigCalibration } from '@/src/engine/rigBody';
 import type { ExerciseSpec } from '@/src/engine/types';
 import { useConnectionStore } from '@/src/store/connectionStore';
+import { useSettingsStore } from '@/src/store/settingsStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
 import { SimPoseSource } from './sim/SimPoseSource';
@@ -43,9 +44,17 @@ export interface SourceBundle {
   dispose(): void;
 }
 
-/** Can a set start right now? Only with a linked Rig (or the simulator, in a dev build). */
+/**
+ * Developer mode: sets may start without the Rig. Always on in a development
+ * build; in an installed APK it is the Profile → Developer switch.
+ */
+export function developerMode(): boolean {
+  return __DEV__ || useSettingsStore.getState().devSkipRig;
+}
+
+/** Can a set start right now? With a linked Rig — or without one, in developer mode. */
 export function canStartSet(): boolean {
-  return rigIsLinked() || __DEV__;
+  return rigIsLinked() || developerMode();
 }
 
 function rigIsLinked(): boolean {
@@ -76,6 +85,8 @@ export function createSetSources(
   let camera: PoseSource | null = null;
   /** a camera that runs next to the Rig, owned (started and stopped) here */
   let companionCamera: CameraPoseSource | null = null;
+  /** developer mode with no Rig: the camera measures and draws on its own */
+  let cameraOnly = false;
 
   if (rigLive) {
     // The exoskeleton draws its own body. Nothing stands in for it when it
@@ -88,6 +99,15 @@ export function createSetSources(
       companionCamera = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
       camera = companionCamera;
     }
+  } else if (developerMode() && cameraViable) {
+    // Developer mode, no Rig: the camera is the instrument. It tracks the
+    // lifter, places the 3D figure on them, and the rule engine grades the
+    // pose it measures — the camera path end to end, testable on a phone
+    // with nothing strapped on.
+    pose = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
+    camera = pose;
+    poseOrigin = 'camera';
+    cameraOnly = true;
   } else if (simPose) {
     pose = simPose;
     poseOrigin = 'sim';
@@ -96,7 +116,7 @@ export function createSetSources(
     return null;
   }
 
-  const sensor: SensorSource | null = rigLive ?? simSensor;
+  const sensor: SensorSource | null = rigLive ?? (cameraOnly ? null : simSensor);
   const ownsSensor = rigLive === null;
 
   return {
@@ -105,7 +125,7 @@ export function createSetSources(
     sensor,
     ownsSensor,
     calibration,
-    poseIsReal: rigLive !== null,
+    poseIsReal: rigLive !== null || cameraOnly,
     poseOrigin,
     startSet() {
       // rep zero starts a beat after the live screen mounts
