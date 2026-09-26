@@ -48,7 +48,9 @@ It is decided in one place, `createSetSources` in `synapse/src/sources/provider.
 
 **There is no demo mode.** Nothing stands in for a missing instrument: no camera, no set. A form coach that animates a plausible body while measuring nothing is worse than no coach — it teaches the lifter to trust it right up until the rep that hurts them. A simulator exists, but only for the test suite: no build, development or release, lets it drive a set.
 
-**Where it runs.** An APK built with `modules/pose-vision` (a local build or a CI build), and the web build in a laptop browser (`npx expo start --web`), which uses the webcam through the same module. Expo Go has no detector, so no set starts there.
+**Where it runs.** An APK built with `modules/pose-vision` (a local build or a CI build), and the web build in a laptop browser (`npm run web`), which runs the same camera path on the webcam — see *Running the app in a laptop browser*. The web build has **no Rig at all**: a browser has no UDP socket, so every Rig screen, chip and button is left out there (`src/sources/udp/rigSupport.ts`). Expo Go has no detector, so no set starts there.
+
+**Getting into position** is decided from what the camera sees, not from a pose to copy: the lifter sees themselves with the 3D body on them, and is told what to fix — *Step back* (feet or head out of frame), *Move to the middle*, *Face the camera* — until all eight graded joints (shoulders, hips, knees, ankles) are on screen, clearly seen, and the body is placed. Held for 1.5 s, it locks and the set begins on the same camera. The rule is `assessFraming` in `src/train/framing.ts`, with tests.
 
 ### Run it
 
@@ -124,7 +126,7 @@ Two traps, both of which fail with a message that points somewhere else:
 | **Technique-grading seam** wired end to end: `SetEngine` calls the evaluator every frame, its severities tint the body, its finding is shown and spoken — see `HANDOFF.md` | |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup, dark + paper themes | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by ~390 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. The release APK also builds locally (arm64, all native libraries 16 KB-aligned). What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps — including what the solid Mesh costs per frame, which is the one number that decides whether it ships as the default. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by ~420 unit/integration tests, and the camera path end to end in the web build — detection, tracking, position-lock, the live set, grading and the 3D body on the video — in Chrome with a video file as its camera; the Android Hermes bundle compiles clean. The release APK also builds locally (arm64, all native libraries 16 KB-aligned). What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps — including what the solid Mesh costs per frame, which is the one number that decides whether it ships as the default. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
@@ -232,13 +234,13 @@ end to end on-device and no frame ever leaves the phone.
 | 4. Crossing | `src/sources/camera/poseVisionBridge.ts` | Flattened arrays → `PoseObservation`; axis flips and the clock fix happen here and nowhere else |
 | 5. Seam | `src/sources/camera/PoseDetector.ts`, `CameraPoseSource.ts` | The registry the rest of the app asks; no registration = camera reports unavailable |
 | 6. Tracking | `src/vision/` | One Euro smoothing, bone lengths over frames, camera solved per frame |
-| 7. Drawing | `src/ui/bodyVolumes.ts`, `facets.ts` | Solids built in metres, projected back through the solved lens |
+| 7. Drawing | `src/ui/LiveBody.tsx`, `BodyOverlay.tsx`, `bodyVolumes.ts`, `facets.ts` | Solids built in metres, projected back through the solved lens, redrawn every screen frame |
 | 8. Grading | `src/engine/` | Joint angles from the same pose, in one unit along every axis |
 
 **Why the camera belongs to the flow.** `app/train.tsx` mounts `SetCamera`
 outside the keyed stage view, so the same camera runs from position-lock
-through the last rep. Position-lock needs frames to align a body against the
-ghost; while the camera lived inside the live screen, the lock screen listened
+through the last rep. Position-lock needs frames to see the lifter's joints;
+while the camera lived inside the live screen, the lock screen listened
 for poses nothing was producing, and a camera-only set could never begin. It
 also means no second of black screen at the handover, and the tracker keeps
 the body it has just measured.
@@ -309,7 +311,7 @@ Neither page has its own copy of the maths, which is the point.
 
 The camera path is a chain of small, separately tested stages. Every number below is a named constant at the top of its file; each one's comment says why it has that value. Change them there and the tests next to the file tell you what you broke.
 
-**1. Detection** — `modules/pose-vision` (`PoseEngine.kt` on Android, `index.web.tsx` in a browser)
+**1. Detection** — `modules/pose-vision` (`PoseEngine.kt` on Android, `PoseVisionWeb.tsx` in a browser)
 MediaPipe Pose Landmarker, *full* model, one person, video/live-stream mode, about 15 detections a second. Each detection gives 33 landmarks in **two spaces**: image (normalized to the frame) and world (metres, origin between the hips). The frame is rotated upright but never mirrored. It runs on the GPU and falls back to the CPU if the GPU is refused. Confidence thresholds are 0.5 (`MIN_DETECTION`, `MIN_PRESENCE`, `MIN_TRACKING`).
 
 **2. Crossing into the app** — `src/sources/camera/poseVisionBridge.ts`
@@ -333,19 +335,24 @@ From the metric skeleton and where its joints landed in the picture, it recovers
 `coverViewport` maps frame pixels onto the screen the way the preview shows them: cropped to fill, and mirrored for the front camera. `landmarksToScreen` applies it to flat drawings.
 
 **7. Deciding to place the body** — `src/vision/useBodyTracking.ts`
-This hook ties stages 3–6 together for the live screen. A camera solve is accepted only when its residual is under `RESIDUAL_LIMIT` (6 % of the frame's short side). The figure is *placed on the person* (`aligned`) only when a solve exists and `coverage` > 0.2. Otherwise the live screen shows the same 3D figure from a fixed angle.
+This hook ties stages 3–6 together. It returns two things, on two clocks, on purpose:
+- `tracker` — read by `LiveBody` on **every screen frame** (`requestAnimationFrame`): the body *now*, predicted forward from the last detection, and the solved camera. `LiveBody` is the only component that re-renders at display rate.
+- `status` — refreshed **five times a second** for everything else: `placed`, the image landmarks, `distance`, `height`, `residual`. The HUD, the status strip and position-lock read this, so the screen's text is not re-rendered sixty times a second to move the figure.
+
+A camera solve is accepted only when its residual is under `RESIDUAL_LIMIT` (6 % of the frame's short side). The figure is *placed on the person* (`isPlaced`) only when a solve exists and `coverage` > `MIN_COVERAGE` (0.2). Until then nothing is drawn — the picture alone, and `SOLVING` in the status strip.
 
 **8. Building the mannequin** — `src/ui/bodyVolumes.ts` (`buildBody`)
 Solids are built in metres around the solved skeleton, sized from the measured proportions. Limbs taper and are oval, the chest and pelvis are boxes, and the joints are cubes. The head takes its orientation from the ear line and the nose (`MAX_HEAD_TILT`), and its size from the body's scale.
 
 **9. Colouring and drawing** — `src/ui/facets.ts`, `volume.ts`, `BodyOverlay.tsx`
-Each solid is split into faces. Faces pointing away are dropped, the rest are projected through the solved camera and sorted back to front. Each face is coloured by its segment's severity through `meshSeverityColor` (turquoise → amber → red), so the colour on the body is exactly `frame.severity` — the rule engine's and the technique evaluator's findings merged. Three styles are available (`OVERLAY_STYLES`: solid, study, contour). `BodyOverlay` draws the faces with Skia.
+Each solid is split into faces. Faces pointing away are dropped, the rest are projected through the solved camera and sorted back to front. Each face is coloured by its segment's severity through `meshSeverityColor` (turquoise → amber → red), so the colour on the body is exactly `frame.severity` — the rule engine's and the technique evaluator's findings merged. Three styles are available (`OVERLAY_STYLES`: solid, study, contour). `BodyOverlay` records the faces into **one Skia picture per frame** (`Skia.PictureRecorder`) and draws it in a single `<Picture>` — not one React element per polygon, which React would have to reconcile sixty times a second. The `live/` page traces the very same facet list onto a 2D canvas, which is why the two look the same.
 
 **Where to look when something is off**
 
 | Symptom | First place to look |
 |---|---|
-| no figure at all | the telemetry line at the bottom of the set screen; then `coverage` / `aligned` in `useBodyTracking` |
+| no figure at all | the telemetry line at the bottom of the set screen; then `status.placed` / `coverage` in `useBodyTracking` |
+| position never locks | the hint under the title names the reason (`framing.ts`); `JOINTS n/8` counts the joints on screen |
 | figure beside the person, or moving the wrong way | `viewport.ts` (crop, mirror); the preview's scale type must be *cover* |
 | figure shaking | `IMAGE_FILTER` / `WORLD_FILTER` in `tracker.ts` (lower `minCutoff`) |
 | figure lagging through a rep | the same filters (raise `beta`); `MAX_PREDICT_MS` |
@@ -358,19 +365,26 @@ The browser pages in `harness/` show every stage's numbers live (solved distance
 
 ### Running the app in a laptop browser — the same camera path as the phone
 
-The web build of the app uses a browser implementation of the pose-vision module (`modules/pose-vision/index.web.tsx`), with the laptop webcam and MediaPipe's web runtime. It emits the same events as the Android view, so everything above it is the app's own code: the bridge, `CameraPoseSource`, the tracker, the engine, the live screen and the 3D overlay on the video.
+The web build of the app uses a browser implementation of the pose-vision module (`modules/pose-vision/PoseVisionWeb.tsx`, reached through `index.web.ts`), with the laptop webcam and MediaPipe's web runtime. It emits the same events as the Android view, so everything above it is the app's own code: the bridge, `CameraPoseSource`, the tracker, position-lock, the engine, the live screen and the 3D body on the video.
 
 ```bash
 cd synapse
-npx expo start --web --offline --max-workers 1
+npm install          # also copies MediaPipe's runtime and the pose model into public/mediapipe/
+npm run web          # = expo start --web; add --offline --max-workers 1 on this machine
 ```
 
-Open the URL it prints → pick an exercise → on the Arm screen press **Request** and allow the camera in the browser → **GRADED BY** reads `CAMERA` → *Begin positioning* → step back until hips and knees are in frame. No Rig is needed.
+Open the URL it prints → pick an exercise → *Continue* → on the Arm screen press **Allow the camera** and allow it in the browser → **GRADED BY** reads `CAMERA` → *Begin positioning* → stand back until the camera sees you head to feet (`JOINTS 8/8`) → hold still → the set starts. The telemetry line at the bottom should read `CAM READY · DETECTOR GPU · LOCAL MODEL · ~11 POSE/S`.
 
 Differences from the phone, all deliberate:
+- **No Rig.** A browser has no UDP socket; the Rig's screens, chip and buttons are not shown (`RIG_SUPPORTED` in `src/sources/udp/rigSupport.ts`).
 - **No recording** — the browser view reports `canRecord: false`.
-- **The MediaPipe runtime and model come from CDNs** (jsdelivr, Google storage), so the first run needs internet.
-- **The Arm screen asks for the camera through the browser**, not Android.
+- **The camera is asked for through the browser**, not Android.
+
+Two traps this path has already fallen into, both fixed and both explained where they live:
+- **Metro picks `index.ts` over `index.web.tsx`.** It tries every platform variant of one extension before the next extension, so a native `index.ts` beats a web `index.tsx`. The web entry is therefore `index.web.ts` (same extension), re-exporting `PoseVisionWeb.tsx`.
+- **Metro cannot bundle `@mediapipe/tasks-vision`** (it loads its WASM glue with a computed `import()`). The browser loads the library itself as an ES module from `public/mediapipe/`, which `scripts/web-vision-assets.js` fills from `node_modules` and from the APK's own model file on every `npm install` and `npm run web`. If those files are missing it falls back to the jsdelivr / Google CDNs, and the telemetry line says `CDN MODEL`.
+
+**Testing it without standing in front of the laptop.** Chrome can use a video file as its camera: start it with `--use-fake-device-for-media-stream --use-file-for-fake-video-capture=clip.y4m --use-fake-ui-for-media-stream` (make the `.y4m` with `ffmpeg -i clip.mp4 -pix_fmt yuv420p clip.y4m`) and the app's real path runs on that footage — detection, tracking, position-lock, the live set and the grading.
 
 `harness/` and `live/` are still useful for looking inside the pipeline stage by stage. The web app is where you check the product itself.
 
@@ -495,30 +509,30 @@ Data flows one way: **sources → engine → screens → renderer**. Each layer 
 
 ```
  sources/                 engine/                 train/ (screens)         ui/ (renderer)
- camera/  pose ────────►  setSession.ts           train.tsx (flow)         BodyOverlay  the 3D body on the picture
- udp/     Rig (optional)─► ├ poseMetrics  angles  ├ PositionStage ───────►  facets.ts   severity → colour
-                          ├ rigBody     IMU→body  ├ LiveStage ───────────►  MeshView    the position-lock ghost outline
+ camera/  pose ────────►  setSession.ts           train.tsx (flow)         LiveBody     the 3D body, every screen frame
+ udp/     Rig (optional)─► ├ poseMetrics  angles  ├ PositionStage ───────►  BodyOverlay  one Skia picture of the faces
+                          ├ rigBody     IMU→body  ├ LiveStage ───────────►  facets.ts    severity → colour
                           ├ fusion      pose+rig  ├ ReviewStage
                           ├ ruleEngine  grades    └ ReportStage
                           ├ repCounter  reps
                           └ technique/evaluator ◄── the seam for technique grading (HANDOFF.md)
 
- vision/ (camera only): tracker → cameraFit → proportions → useBodyTracking → BodyOverlay
+ vision/ (camera only): tracker → cameraFit → proportions → useBodyTracking → LiveBody → BodyOverlay
 ```
 
 ### `synapse/src/`, folder by folder
 
 | Folder | Responsibility | Start with |
 |---|---|---|
-| `sources/` | **Where data comes from.** Each source implements `PoseSource` or `SensorSource` from `sources/types.ts`. `provider.ts` picks the sources for a set: the linked Rig grades it; the camera, if allowed, only shows the exoskeleton over the picture. Without a Rig no set starts (dev builds use the simulator) | `provider.ts` |
-| `sources/udp/` | The Rig link. `protocol.ts` parses every wire format and treats all input as untrusted. `UdpSensorSource` owns the socket and the link state. `rigLink.ts` holds the app-wide link and calibration. `firmware.ts` holds the Rig's fixed network constants | `protocol.ts` |
+| `sources/` | **Where data comes from.** Each source implements `PoseSource` or `SensorSource` from `sources/types.ts`. `provider.ts` picks the sources for a set: the camera always measures and draws; a linked Rig adds its sensors to the grading. No camera, no set — nothing is simulated | `provider.ts` |
+| `sources/udp/` | The Rig link. `protocol.ts` parses every wire format and treats all input as untrusted. `UdpSensorSource` owns the socket and the link state. `rigLink.ts` holds the app-wide link and calibration. `firmware.ts` holds the Rig's fixed network constants. `rigSupport.ts` says whether this build can reach a Rig at all (never in a browser) | `protocol.ts` |
 | `sources/camera/` | Camera pose. `PoseDetector.ts` is the detector registry, `CameraPoseSource` is the source, and `poseVisionBridge.ts` turns native MediaPipe events into observations | `poseVisionBridge.ts` |
-| `sources/sim/` | A deterministic simulator of a lifter and a Rig, with fault injection. Used only by tests and `__DEV__` builds; it can never reach a tester's APK | `simTimeline.ts` |
+| `sources/sim/` | A deterministic simulator of a lifter and a Rig, with fault injection. Used only by the tests; no build lets it drive a set | `simTimeline.ts` |
 | `engine/` | **The truth.** `SetEngine` (`setSession.ts`) runs a set. For every pose frame it derives metrics, fuses them with the Rig, grades them against the exercise's rules, counts reps, calls the technique evaluator, and emits one `EngineFrame`. Pure TypeScript, fully unit-tested | `setSession.ts`, `types.ts` |
 | `technique/` | **The seam for technique grading.** `evaluator.ts` is the contract, `highlight.ts` gives ready-made commands for lighting up the 3D body (`.fault('leftLeg', …)`, `.drift`, `.watch`, `.measure`), and `example.test.ts` is a worked example. See `HANDOFF.md` | `evaluator.ts`, `highlight.ts` |
 | `vision/` | Camera-only maths: One Euro smoothing, bone lengths, body proportions, the per-frame camera solve, and the viewport mapping between frame and screen | `tracker.ts`, `useBodyTracking.ts` |
-| `train/` | The training flow's screens (select → tutorial → arm → position → live → review → report). Also `SetCamera` (one camera for the whole set), `ClipRecorder` (a clip's lifecycle) and `recording.ts` (ephemeral files) | `app/train.tsx`, then `LiveStage.tsx` |
-| `ui/` | Components and the renderer. `bodyVolumes.ts` builds solids in metres, `facets.ts` turns them into coloured faces, and `BodyOverlay` draws them on the camera picture (`MeshView` only draws the position-lock ghost outline) | `facets.ts` |
+| `train/` | The training flow's screens (select → tutorial → arm → position → live → review → report). Also `SetCamera` (one camera for the whole set), `framing.ts` (is the lifter framed well enough to grade), `ClipRecorder` (a clip's lifecycle) and `recording.ts` (ephemeral files) | `app/train.tsx`, then `LiveStage.tsx` |
+| `ui/` | Components and the renderer. `bodyVolumes.ts` builds solids in metres, `facets.ts` turns them into coloured faces, `BodyOverlay` records them into one Skia picture, and `LiveBody` redraws it on the camera picture every screen frame | `facets.ts`, `LiveBody.tsx` |
 | `coach/` | `RuleCoach` (deterministic cues), `LLMCoach` (optional Claude rephrasing that never invents numbers), speech, haptics | `RuleCoach.ts` |
 | `data/` | The exercise catalogue with full rule specs, lesson videos, achievements | `exercises.ts` |
 | `store/` | zustand stores: settings, history (numbers only, never media), Rig connection state | — |
@@ -528,12 +542,12 @@ Data flows one way: **sources → engine → screens → renderer**. Each layer 
 
 `synapse/modules/` holds the two local native Expo modules (Kotlin), which are autolinked from this folder:
 - `rig-udp` — a receive-only UDP socket for the Rig
-- `pose-vision` — a camera view that owns CameraX (preview, frame analysis, recording) and runs MediaPipe Pose. `PoseEngine.kt` is the detector, `PoseVisionView.kt` is the camera, and `index.ts` is the JS surface
+- `pose-vision` — a camera view that owns CameraX (preview, frame analysis, recording) and runs MediaPipe Pose. `PoseEngine.kt` is the detector, `PoseVisionView.kt` is the camera, and `index.ts` is the JS surface. In a browser the same surface is `index.web.ts` → `PoseVisionWeb.tsx` (webcam + MediaPipe web)
 
 ### One frame, end to end
 
 1. **Rig:** a UDP datagram goes to `UdpSensorSource`, then `parseRigPayload`, and becomes a `SensorFrame`. `SetEngine` fuses the Rig's metrics into the grading and keeps the frame plus its calibrated `rigBody`.
-2. **Camera:** a CameraX frame goes to `PoseEngine` (MediaPipe), which fires an `onPose` event. `poseVisionBridge` fixes the axes and the clock, and `CameraPoseSource` emits a `PoseFrame` with image points, world points and the frame size. In parallel, `useBodyTracking` smooths the pose, measures the body and solves the camera.
+2. **Camera:** a CameraX frame goes to `PoseEngine` (MediaPipe), which fires an `onPose` event. `poseVisionBridge` fixes the axes and the clock, and `CameraPoseSource` emits a `PoseFrame` with image points, world points and the frame size. In parallel, `useBodyTracking` smooths the pose, measures the body and solves the camera, and `LiveBody` draws the body for each screen frame.
 3. **Engine:** `SetEngine.onPose` runs `deriveMetrics` (camera points are made isotropic first), fuses the result with the Rig, grades it with `gradeFrame` against the exercise rules, runs the rep counter, calls `evaluateTechnique`, and emits `EngineFrame { grade, technique, severity }`.
 4. **Screen:** `LiveStage` tints the body by `frame.severity`, shows the worst finding in the fault chip, speaks the coach's cues and records the clip. The line at the bottom of the screen shows the camera's health.
 
@@ -601,7 +615,9 @@ One build quirk: `metro.config.js` resolves `zustand` with the `require` conditi
 | `LIVE_CUE_GAP_MS`, `SAME_RULE_GAP_MS`, `LIVE_SEVERITY_FLOOR` | `4000`, `9000`, `0.55` | `src/coach/RuleCoach.ts` | how often the coach may speak, and from what severity |
 | DRIFT / FAULT thresholds | `0.55` / `1` | `src/train/LiveStage.tsx` | when the fault chip appears and when it turns red |
 | `CUE_MODEL`, `REPORT_MODEL`, `CUE_DEADLINE_MS` | `claude-haiku-4-5`, `claude-sonnet-5`, `2000` | `src/coach/LLMCoach.ts` | the optional Claude coach |
-| `HOLD_MS`, `LOCK_SCORE` | `1500`, `0.85` | `src/train/PositionStage.tsx` | how long and how closely the body must match the ghost before a set starts |
+| `HOLD_MS` | `1500` | `src/train/PositionStage.tsx` | how long the lifter must stay framed before the set starts |
+| `FRAMED_JOINTS`, `MIN_VISIBILITY`, `EDGE_MARGIN` | 8 joints, `0.5`, `0.03` | `src/train/framing.ts` | which joints must be on screen, how clearly, and how far from the edge |
+| `RESIDUAL_LIMIT`, `MIN_COVERAGE` | `0.06`, `0.2` | `src/vision/useBodyTracking.ts` | when a camera solve is trusted, and how much of the body must be seen to draw it |
 | `DURATIONS` | `15, 30, 60, 90` s | `src/train/ArmStage.tsx` | set length choices |
 | `IMAGE_FILTER`, `WORLD_FILTER`, `HOLD_MS` | One Euro settings, `500` | `src/vision/tracker.ts` | camera smoothing, and how long a lost joint is held |
 | exercise rules (`ok`, `warn`, `rep`) | per lift | `src/data/exercises.ts` | every grading threshold |

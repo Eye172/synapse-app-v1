@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Linking, ScrollView, TextInput, View } from 'react-native';
+import { ScrollView, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { getAiKey, setAiKey, verifyAiKey } from '@/src/coach/aiKeyStore';
 import { calibratedNodeCount } from '@/src/sources/udp/rigLink';
+import { RIG_SUPPORTED } from '@/src/sources/udp/rigSupport';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, radius, space } from '@/src/theme/tokens';
@@ -284,25 +285,14 @@ export default function ProfileScreen() {
         <ScreenHeader eyebrow="PROFILE" title="Operator" />
 
         <View style={{ paddingHorizontal: space.gutter, gap: space.sm }}>
-          <GlassCard>
-            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
-              KIT
-            </AppText>
-            <KitSection onConnect={() => router.push('/connect')} />
-            <Divider />
-            <Row
-              label="Buy / manage kit"
-              right={
-                <AppText variant="h3" color={color.textLo}>
-                  ↗
-                </AppText>
-              }
-              onPress={() => {
-                // placeholder storefront — swap for the real shop before launch
-                Linking.openURL('https://synapse-rig.example.com/kit').catch(() => {});
-              }}
-            />
-          </GlassCard>
+          {RIG_SUPPORTED ? (
+            <GlassCard>
+              <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
+                KIT
+              </AppText>
+              <KitSection onConnect={() => router.push('/connect')} />
+            </GlassCard>
+          ) : null}
 
           <GlassCard>
             <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
@@ -383,21 +373,23 @@ export default function ProfileScreen() {
             <Chip label="EPHEMERAL BY DESIGN" tint={color.mesh} />
           </GlassCard>
 
-          <GlassCard>
-            <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
-              HARDWARE
-            </AppText>
-            <Row
-              label="Sensor setup"
-              sub="MOUNTING, ORIENTATION, SIGNAL"
-              right={
-                <AppText variant="h3" color={color.textLo}>
-                  ›
-                </AppText>
-              }
-              onPress={() => router.push('/sensor-setup')}
-            />
-          </GlassCard>
+          {RIG_SUPPORTED ? (
+            <GlassCard>
+              <AppText variant="nano" color={color.textMid} style={{ marginBottom: 4 }}>
+                HARDWARE
+              </AppText>
+              <Row
+                label="Sensor setup"
+                sub="MOUNTING, ORIENTATION, SIGNAL"
+                right={
+                  <AppText variant="h3" color={color.textLo}>
+                    ›
+                  </AppText>
+                }
+                onPress={() => router.push('/sensor-setup')}
+              />
+            </GlassCard>
+          ) : null}
 
           <AppText variant="nano" color={color.textLo} style={{ textAlign: 'center', paddingHorizontal: space.lg }}>
             SYNAPSE IS A TRAINING AID, NOT MEDICAL ADVICE. STOP IF YOU FEEL PAIN.

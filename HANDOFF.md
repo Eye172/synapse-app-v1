@@ -12,12 +12,22 @@ vibrates.
 git clone https://github.com/Eye172/synapse-app-v1.git
 cd synapse-app-v1/synapse
 npm install
-npm test                 # 380+ tests, all green
+npm test                 # 410+ tests, all green
 npm run typecheck
 ```
 
+**The app itself runs in a laptop browser** with the webcam — the same camera
+path as the phone (MediaPipe → tracking → position-lock → live set → grading →
+the 3D body on the video), without a Rig, which a browser cannot reach:
+
+```bash
+npm run web              # Arm → Allow the camera → Begin positioning → stand back head to feet
+```
+
+See *Running the app in a laptop browser* in `README.md`.
+
 Optional browser harnesses, which run the app's own vision code on clips, still
-photos and a laptop webcam:
+photos and a laptop webcam, stage by stage with all the numbers:
 
 ```bash
 cd ../harness

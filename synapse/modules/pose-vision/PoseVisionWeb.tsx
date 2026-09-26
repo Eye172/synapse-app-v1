@@ -1,4 +1,4 @@
-import { FilesetResolver, PoseLandmarker, type NormalizedLandmark } from '@mediapipe/tasks-vision';
+import type { FilesetResolver, NormalizedLandmark, PoseLandmarker } from '@mediapipe/tasks-vision';
 import React, { forwardRef, useEffect, useImperativeHandle, useRef } from 'react';
 import { StyleSheet } from 'react-native';
 
@@ -19,49 +19,91 @@ import type {
  * tracker, the engine, the live screen and the 3D overlay — is the app's
  * code, unchanged, so what the laptop shows is what the phone would.
  *
- * Differences from the phone, both deliberate:
- *  - no recording (`canRecord: false`) — clips are a phone feature;
- *  - the runtime and the model load from a CDN rather than the APK.
+ * One difference from the phone, deliberate: no recording
+ * (`canRecord: false`) — clips are a phone feature.
  *
- * Run it with `npx expo start --web` and a set in developer mode (always on
- * in a development build): Arm → grant the camera → Begin positioning.
+ * The runtime and the model are served by the app itself from
+ * `public/mediapipe/` (copied there by `scripts/web-vision-assets.js` — the
+ * same model file the APK ships). Only if those are missing does it fall
+ * back to the public CDNs, so a fresh checkout that skipped the copy still
+ * runs.
+ *
+ * Run it with `npm run web`: Arm → allow the camera → Begin positioning.
  */
 
-export * from './types';
-
 const MEDIAPIPE_VERSION = '1.0.1';
-const WASM_ROOT = `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`;
-/** The same full-size pose model the Android build ships. */
-const MODEL_URL =
-  'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task';
+
+/**
+ * Where the library, its WASM runtime and the full pose model are loaded
+ * from, in order.
+ */
+const ASSET_SOURCES = [
+  // served by the app: the installed library and runtime, and the APK's own model
+  {
+    lib: '/mediapipe/vision_bundle.mjs',
+    wasm: '/mediapipe/wasm',
+    model: '/mediapipe/pose_landmarker_full.task',
+  },
+  {
+    lib: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/vision_bundle.mjs`,
+    wasm: `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`,
+    model:
+      'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task',
+  },
+] as const;
 
 /** The phone's detector runs at about 15 Hz; so does this, so the two behave alike. */
 const DETECT_PERIOD_MS = 66;
 
-type Loaded = { landmarker: PoseLandmarker; delegate: 'GPU' | 'CPU' };
+type Vision = { FilesetResolver: typeof FilesetResolver; PoseLandmarker: typeof PoseLandmarker };
+
+/**
+ * The library is loaded by the browser as an ES module, not bundled.
+ * Metro cannot bundle `@mediapipe/tasks-vision`: it loads its WASM glue with
+ * a computed `import()`, which Metro rejects outright. Built through
+ * `Function` so Metro leaves this `import()` alone too. The type imports
+ * above are erased, so nothing of the package reaches the bundle.
+ */
+const importModule = new Function('url', 'return import(url)') as (url: string) => Promise<Vision>;
+
+type Loaded = { landmarker: PoseLandmarker; delegate: 'GPU' | 'CPU'; from: 'app' | 'cdn' };
 let loading: Promise<Loaded> | null = null;
 
 /**
- * One landmarker for the page, GPU first and CPU if the browser refuses —
- * the same fallback the Android engine makes.
+ * One landmarker for the page: from the app's own copy of the runtime and
+ * model, else from the CDN; GPU first and CPU if the browser refuses — the
+ * same fallback the Android engine makes.
  */
 function loadLandmarker(): Promise<Loaded> {
   if (loading) return loading;
   loading = (async () => {
-    const fileset = await FilesetResolver.forVisionTasks(WASM_ROOT);
-    for (const delegate of ['GPU', 'CPU'] as const) {
+    let last: unknown = null;
+    for (const [i, src] of ASSET_SOURCES.entries()) {
+      // a missing local copy is a 404 on the model; check before handing the
+      // runtime a path it will fail on with a far less useful message
+      if (i === 0 && !(await reachable(src.model))) continue;
+      let vision: Vision;
       try {
-        const landmarker = await PoseLandmarker.createFromOptions(fileset, {
-          baseOptions: { modelAssetPath: MODEL_URL, delegate },
-          runningMode: 'VIDEO',
-          numPoses: 1,
-        });
-        return { landmarker, delegate };
+        vision = await importModule(src.lib);
       } catch (e) {
-        if (delegate === 'CPU') throw e;
+        last = e;
+        continue;
+      }
+      const fileset = await vision.FilesetResolver.forVisionTasks(src.wasm);
+      for (const delegate of ['GPU', 'CPU'] as const) {
+        try {
+          const landmarker = await vision.PoseLandmarker.createFromOptions(fileset, {
+            baseOptions: { modelAssetPath: src.model, delegate },
+            runningMode: 'VIDEO',
+            numPoses: 1,
+          });
+          return { landmarker, delegate, from: i === 0 ? 'app' : 'cdn' };
+        } catch (e) {
+          last = e;
+        }
       }
     }
-    throw new Error('the pose detector could not be created');
+    throw last instanceof Error ? last : new Error('the pose detector could not be created');
   })();
   loading.catch(() => {
     loading = null;
@@ -75,6 +117,15 @@ function loadLandmarker(): Promise<Loaded> {
  * not per view, so a remounted camera cannot send the clock backwards.
  */
 let lastStamp = 0;
+
+async function reachable(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url, { method: 'HEAD' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 function flatten(points: NormalizedLandmark[]): number[] {
   const out: number[] = [];
@@ -144,7 +195,7 @@ const WebPoseVisionView = forwardRef<PoseVisionViewRef, PoseVisionViewProps>(fun
       }
       if (stopped) return;
       status.detector = 'ready';
-      status.detail = loaded.delegate;
+      status.detail = `${loaded.delegate} · ${loaded.from === 'app' ? 'LOCAL MODEL' : 'CDN MODEL'}`;
       emit();
 
       const tick = () => {

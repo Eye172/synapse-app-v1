@@ -2,6 +2,7 @@ import { Redirect, Tabs } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { View } from 'react-native';
 
+import { RIG_SUPPORTED } from '@/src/sources/udp/rigSupport';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color } from '@/src/theme/tokens';
 import { TabBar } from '@/src/ui/TabBar';
@@ -20,7 +21,8 @@ export default function TabsLayout() {
   if (!hydrated) {
     return <View style={{ flex: 1, backgroundColor: color.void }} />;
   }
-  if (!onboardingDone) {
+  // first run is about putting the Rig on; a browser has no Rig to put on
+  if (!onboardingDone && RIG_SUPPORTED) {
     return <Redirect href="/onboarding" />;
   }
 

@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -7,6 +7,7 @@ import { buzz } from '@/src/coach/haptics';
 import { RIG_NODE_IDS, type RigNodeId, type SensorFrame, type SensorNode } from '@/src/engine/types';
 import { RIG_HOTSPOT_PASSWORD, RIG_HOTSPOT_SSID } from '@/src/sources/udp/firmware';
 import { calibratedNodeCount, calibrateNeutral, rigLink } from '@/src/sources/udp/rigLink';
+import { RIG_SUPPORTED } from '@/src/sources/udp/rigSupport';
 import { RIG_UDP_PORT } from '@/src/sources/udp/UdpSensorSource';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
@@ -56,7 +57,7 @@ function Credential({ label, value }: { label: string; value: string }) {
  * the Rig's nodes join it and stream UDP to :1234. SEARCHING → NODES FOUND →
  * CALIBRATE → LINKED.
  */
-export default function ConnectScreen() {
+function ConnectScreen() {
   useThemeMode(); // repaint this screen when the ground changes
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -401,4 +402,9 @@ export default function ConnectScreen() {
       </ScrollView>
     </View>
   );
+}
+
+/** A browser has no UDP socket and so no Rig: the route leads home. */
+export default function ConnectRoute() {
+  return RIG_SUPPORTED ? <ConnectScreen /> : <Redirect href="/" />;
 }

@@ -1,10 +1,11 @@
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { SensorFrame } from '@/src/engine/types';
 import { calibratedNodeCount, rigLink } from '@/src/sources/udp/rigLink';
+import { RIG_SUPPORTED } from '@/src/sources/udp/rigSupport';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
@@ -24,7 +25,7 @@ import { Section } from '@/src/ui/Section';
  * here, with the live readings underneath, so a mismatch is a twenty-second
  * fix by whoever is wearing it rather than a new build.
  */
-export default function SensorSetupScreen() {
+function SensorSetupScreen() {
   useThemeMode(); // repaint this screen when the ground changes
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -96,4 +97,9 @@ export default function SensorSetupScreen() {
       </ScrollView>
     </View>
   );
+}
+
+/** A browser has no UDP socket and so no Rig: the route leads home. */
+export default function SensorSetupRoute() {
+  return RIG_SUPPORTED ? <SensorSetupScreen /> : <Redirect href="/" />;
 }

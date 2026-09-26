@@ -4,6 +4,7 @@ import { ScrollView, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { EXERCISES, getExercise } from '@/src/data/exercises';
+import { RIG_SUPPORTED } from '@/src/sources/udp/rigSupport';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { computeStreak, useHistoryStore, weeklySafetyScore } from '@/src/store/historyStore';
 import { color, space } from '@/src/theme/tokens';
@@ -44,8 +45,9 @@ export default function HomeScreen() {
   const weekSessions = sessions.filter((s) => s.date >= Date.now() - 7 * 86400000);
   const weekReps = weekSessions.reduce((a, s) => a + s.reps, 0);
 
-  const ctaSub =
-    mode === 'linked'
+  const ctaSub = !RIG_SUPPORTED
+    ? 'CAMERA · 3D BODY TRACKING'
+    : mode === 'linked'
       ? `RIG LINKED · ${nodeCount}/5 NODES`
       : mode === 'searching'
         ? 'SEARCHING FOR RIG'
@@ -66,7 +68,7 @@ export default function HomeScreen() {
             <AppText variant="nano" color={color.textLo}>
               {dateStr}
             </AppText>
-            <ConnectionChip />
+            {RIG_SUPPORTED ? <ConnectionChip /> : null}
           </View>
           <AppText variant="h1" style={{ marginTop: 14 }}>
             {greeting(now.getHours())}

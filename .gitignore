@@ -20,6 +20,10 @@ synapse/modules/*/android/.cxx/
 # the partial gradle copy in materials is build junk, not source
 materials/base/android/
 
+# MediaPipe's web runtime and the pose model, copied from node_modules and
+# the Android assets by synapse/scripts/web-vision-assets.js
+synapse/public/mediapipe/
+
 # machine-local tooling
 .claude/
 .DS_Store

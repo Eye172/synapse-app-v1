@@ -183,7 +183,9 @@ export default function TrainScreen() {
           </View>
         );
       case 'position':
-        return ex ? <PositionStage ex={ex} sources={sourcesRef.current} onLocked={() => setStage('live')} /> : null;
+        return ex && sourcesRef.current ? (
+          <PositionStage ex={ex} sources={sourcesRef.current} onLocked={() => setStage('live')} />
+        ) : null;
       case 'live':
         return ex && sourcesRef.current ? (
           <LiveStage

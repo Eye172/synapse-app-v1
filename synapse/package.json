@@ -7,7 +7,8 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
-    "web": "expo start --web",
+    "web": "node scripts/web-vision-assets.js && expo start --web",
+    "postinstall": "node scripts/web-vision-assets.js",
     "test": "jest",
     "typecheck": "tsc --noEmit",
     "gen:assets": "node scripts/gen-assets.js",

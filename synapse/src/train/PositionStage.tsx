@@ -4,29 +4,30 @@ import { View, useWindowDimensions } from 'react-native';
 
 import { buzz } from '@/src/coach/haptics';
 import { speakCue } from '@/src/coach/speech';
-import type { ExerciseSpec, Landmark, PoseFrame } from '@/src/engine/types';
+import type { ExerciseSpec, PoseFrame } from '@/src/engine/types';
 import type { SourceBundle } from '@/src/sources/provider';
-import { ghostPose } from '@/src/sources/sim/kinematics';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
-import { BodyOverlay } from '@/src/ui/BodyOverlay';
 import { CornerBrackets, bracketTint } from '@/src/ui/CornerBrackets';
-import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
+import { LiveBody } from '@/src/ui/LiveBody';
 import { ScanlineSweep } from '@/src/ui/ScanlineSweep';
 import { useBodyTracking } from '@/src/vision/useBodyTracking';
 import { coverViewport, landmarksToScreen } from '@/src/vision/viewport';
 
-import { alignmentScore } from './alignment';
+import { FRAMING_HINT, assessFraming } from './framing';
 
+/** How long the lifter must stay framed before the set begins. */
 const HOLD_MS = 1500;
-const LOCK_SCORE = 0.85;
 
 /**
- * GET_INTO_POSITION (§2.5): the acid ghost target, the live turquoise body
- * drifting into it, a ring that closes while alignment holds, then LOCK.
- * Development builds simulate the walk-in with the same alignment math the
- * path will use.
+ * GET_INTO_POSITION (§2.5): the lifter sees themselves, with their 3D body
+ * tracked onto the picture, and is told what to fix until the camera sees
+ * every joint the set is graded from. Held for a moment, it locks and the
+ * set begins — on the same camera, the same tracker settings, no restart.
+ *
+ * There is no target pose to match and nothing simulated: readiness is
+ * decided from what the detector actually reports (`framing.ts`).
  */
 export function PositionStage({
   ex,
@@ -34,111 +35,60 @@ export function PositionStage({
   onLocked,
 }: {
   ex: ExerciseSpec;
-  sources?: SourceBundle | null;
+  sources: SourceBundle;
   onLocked: () => void;
 }) {
   const { width, height } = useWindowDimensions();
-  const facing = useSettingsStore((s) => s.cameraFacing);
-  // read through a ref so a pose arriving mid-effect uses the current screen,
-  // not the one the subscription happened to be made under
-  const screenRef = useRef({ width, height, mirrored: facing === 'front' });
-  screenRef.current = { width, height, mirrored: facing === 'front' };
-  const ghost = useMemo(() => ghostPose(ex), [ex]);
+  const mirrored = useSettingsStore((s) => s.cameraFacing) === 'front';
 
-  // With a camera running, the body is shown as it is on the live set: the 3D
-  // mannequin tracked onto the lifter's own picture, not a flat skeleton. The
-  // tracker is subscribed to the camera whichever source grades the set.
-  const cameraSource = sources?.camera ?? (sources?.poseOrigin === 'camera' ? sources.pose : null);
-  const cameraRef = useRef(cameraSource);
-  cameraRef.current = cameraSource;
-  const subscribeCamera = useMemo(
-    () => (cb: (f: PoseFrame) => void) => cameraRef.current?.onPose(cb) ?? (() => {}),
-    [],
-  );
-  const tracking = useBodyTracking(subscribeCamera, { width, height, mirrored: facing === 'front' });
-  const [frame, setFrame] = useState<MeshFrame | null>(null);
-  const [score, setScore] = useState(0);
+  // the camera source is started here and keeps running into the set
+  const poseRef = useRef(sources.pose);
+  poseRef.current = sources.pose;
+  useEffect(() => {
+    sources.pose.start();
+  }, [sources]);
+  const subscribe = useMemo(() => (cb: (f: PoseFrame) => void) => poseRef.current.onPose(cb), []);
+  const { tracker, status } = useBodyTracking(subscribe);
+
+  const framing = useMemo(() => {
+    const onScreen =
+      status.image && status.frame
+        ? landmarksToScreen(status.image, coverViewport(status.frame, { width, height }, mirrored))
+        : null;
+    return assessFraming(onScreen, status.placed);
+  }, [status, width, height, mirrored]);
+
   const [hold, setHold] = useState(0);
   const [locked, setLocked] = useState(false);
-  const lockedRef = useRef(false);
+  const readySince = useRef<number | null>(null);
+  const onLockedRef = useRef(onLocked);
+  onLockedRef.current = onLocked;
 
   useEffect(() => {
-    lockedRef.current = false;
-    setLocked(false);
-    setHold(0);
-    const t0 = Date.now();
-    let holdStart: number | null = null;
-    let raf: ReturnType<typeof setTimeout> | null = null;
-    let unsub: (() => void) | null = null;
-
-    const evaluate = (live: Landmark[], now: number) => {
-      const s = alignmentScore(live, ghost);
-      setScore(s);
-      setFrame({ landmarks: live, segments: {}, t: now });
-      if (!lockedRef.current) {
-        if (s >= LOCK_SCORE) {
-          if (holdStart === null) holdStart = now;
-          const h = Math.min(1, (now - holdStart) / HOLD_MS);
-          setHold(h);
-          if (h >= 1) {
-            lockedRef.current = true;
-            setLocked(true);
-            buzz('lock');
-            speakCue('Position locked.');
-            setTimeout(onLocked, 700);
-            return true;
-          }
-        } else {
-          holdStart = null;
-          setHold(0);
-        }
-      }
-      return false;
-    };
-
-    if (sources?.poseIsReal) {
-      // a real body — the Rig's, or the camera's — aligned against the ghost
-      unsub = sources.pose.onPose((f) => {
-        if (lockedRef.current) return;
-        // The ghost is drawn in the screen's space. A camera pose is in the
-        // frame's, unmirrored, under a preview that is cropped and — from the
-        // front camera — mirrored; compared as-is, a wearer standing exactly
-        // on the ghost would be scored as missing it, and stepping toward it
-        // would move them away.
-        const { width: w, height: h, mirrored } = screenRef.current;
-        const live =
-          f.source === 'camera' && f.frame
-            ? landmarksToScreen(f.landmarks, coverViewport(f.frame, { width: w, height: h }, mirrored))
-            : f.landmarks;
-        evaluate(live, f.t);
-      });
-      sources.pose.start();
-    } else {
-      // development build: a scripted body walks into the ghost over ~2.4s
-      const tick = () => {
-        const now = Date.now();
-        const t = (now - t0) / 1000;
-        const k = Math.min(1, t / 2.4);
-        const eased = 1 - (1 - k) ** 3;
-        const off = 1 - eased;
-        const wob = (f: number, p: number) => Math.sin(t * f + p) * 0.006 * (0.4 + off);
-        const live: Landmark[] = ghost.map((g, i) => ({
-          ...g,
-          x: g.x - off * 0.11 + wob(1.9, i * 0.7),
-          y: g.y + off * 0.05 + wob(2.6, i * 1.3),
-        }));
-        if (evaluate(live, now)) return;
-        raf = setTimeout(tick, 33);
-      };
-      tick();
+    if (locked) return undefined;
+    if (framing.issue !== 'ready') {
+      readySince.current = null;
+      setHold(0);
+      return undefined;
     }
+    const now = Date.now();
+    if (readySince.current === null) readySince.current = now;
+    const h = Math.min(1, (now - readySince.current) / HOLD_MS);
+    setHold(h);
+    if (h < 1) return undefined;
+    setLocked(true);
+    buzz('lock');
+    speakCue('Position locked.');
+    return undefined;
+  }, [framing, locked]);
 
-    return () => {
-      if (raf) clearTimeout(raf);
-      unsub?.();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ex, ghost, sources]);
+  // a beat on POSITION LOCKED, then the set — its own effect, so the framing
+  // updates that keep arriving cannot cancel the handover
+  useEffect(() => {
+    if (!locked) return undefined;
+    const t = setTimeout(() => onLockedRef.current(), 700);
+    return () => clearTimeout(t);
+  }, [locked]);
 
   const ringSize = 108;
   const ring = useMemo(() => {
@@ -150,31 +100,24 @@ export function PositionStage({
     return { p, track };
   }, [hold]);
 
-  const tint = locked ? color.ok : score >= LOCK_SCORE ? color.acid : color.mesh;
+  const ready = framing.issue === 'ready';
+  const tint = locked ? color.ok : ready ? color.acid : color.mesh;
+  const copy = FRAMING_HINT[framing.issue];
+
+  // the numbers the camera has recovered, so what is being measured is visible
+  const readout = [
+    `JOINTS ${framing.seen}/${framing.total}`,
+    status.distance !== null ? `DISTANCE ${status.distance.toFixed(1)} M` : null,
+    status.height !== null && status.confidence > 0.3 ? `HEIGHT ${status.height.toFixed(2)} M` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <View style={{ flex: 1 }}>
       {!locked ? <ScanlineSweep tint="rgba(33,240,220,0.28)" durationMs={2100} /> : null}
-      <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        {tracking.aligned ? (
-          <BodyOverlay
-            pose={tracking.pose}
-            camera={tracking.camera}
-            viewport={tracking.viewport ?? undefined}
-            width={width}
-            height={height}
-          />
-        ) : null}
-      </View>
-      <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        {/* the ghost is a target outline, not a body; the live body is the 3D
-            figure above whenever a camera places it */}
-        <MeshView
-          frame={cameraSource ? null : frame}
-          ghost={locked ? null : ghost}
-          width={width}
-          height={height}
-        />
+      <View style={{ position: 'absolute', top: 0, left: 0 }} pointerEvents="none">
+        <LiveBody tracker={tracker} width={width} height={height} mirrored={mirrored} />
       </View>
 
       <View style={{ position: 'absolute', top: space.xl + 26, left: 0, right: 0, alignItems: 'center', gap: 4 }}>
@@ -182,10 +125,10 @@ export function PositionStage({
           {`· ${ex.name.toUpperCase()} · POSITION ·`}
         </AppText>
         <AppText variant="h2" color={locked ? color.ok : color.textHi}>
-          {locked ? 'POSITION LOCKED' : 'Step into the frame'}
+          {locked ? 'POSITION LOCKED' : copy.title}
         </AppText>
-        <AppText variant="micro" color={color.textMid}>
-          {locked ? 'STARTING THE SET' : 'ALIGN YOUR BODY WITH THE GREEN TARGET'}
+        <AppText variant="micro" color={locked ? color.ok : ready ? color.acid : color.textMid} align="center">
+          {locked ? 'STARTING THE SET' : copy.hint}
         </AppText>
       </View>
 
@@ -196,16 +139,16 @@ export function PositionStage({
             <Path path={ring.p} style="stroke" strokeWidth={3.5} strokeCap="round" color={tint} />
           </Canvas>
           <AppText variant="monoValue" color={tint} style={{ fontSize: 22 }}>
-            {`${Math.round(score * 100)}%`}
+            {`${framing.seen}/${framing.total}`}
           </AppText>
           <AppText variant="nano" color={color.textLo}>
-            ALIGNED
+            IN FRAME
           </AppText>
         </View>
         <View style={{ paddingHorizontal: 14, paddingVertical: 6 }}>
           <CornerBrackets size={10} tint={locked ? 'rgba(22,227,154,0.6)' : bracketTint.dim} />
           <AppText variant="nano" color={locked ? color.ok : color.textMid}>
-            {locked ? 'LOCK CONFIRMED' : score >= LOCK_SCORE ? 'HOLD IT' : 'KEEP MOVING IN'}
+            {readout}
           </AppText>
         </View>
       </View>

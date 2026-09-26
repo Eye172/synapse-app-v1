@@ -1,4 +1,4 @@
-import { Canvas, Group, Path, Rect, Skia, type SkPath } from '@shopify/react-native-skia';
+import { Canvas, PaintStyle, Picture, Skia, StrokeJoin, type SkPicture } from '@shopify/react-native-skia';
 import React, { useMemo } from 'react';
 
 import type { SegmentSeverity } from '@/src/technique/evaluator';
@@ -8,7 +8,6 @@ import type { Viewport } from '@/src/vision/viewport';
 
 import { buildBody } from './bodyVolumes';
 import { buildFacets, OVERLAY_STYLES, type Facet, type OverlayStyle } from './facets';
-import { DEFAULT_CAMERA, perspectiveProjector, type Camera } from './volume';
 
 /**
  * The mannequin, drawn over the person it was measured from.
@@ -22,105 +21,105 @@ import { DEFAULT_CAMERA, perspectiveProjector, type Camera } from './volume';
  * It is drawn filled rather than in outline because outlines cannot hide
  * anything. Unfilled, a far limb's edges show straight through a near one
  * and the figure reads as a tangle of flat lines; filled, near parts cover
- * far ones and the shape reads as a body. The fill is translucent and the
- * background is dimmed underneath it, so the person stays visible through
- * their own model — the point is to compare the two, and an opaque figure
- * would hide the thing it is commenting on.
+ * far ones and the shape reads as a body. The fill is translucent, so the
+ * person stays visible through their own model.
  *
- * The geometry itself is built in `facets.ts`, which knows nothing about
- * Skia. This file only turns polygons into paths.
+ * The geometry is built in `facets.ts`, which knows nothing about Skia — the
+ * `live/` browser page traces the very same facet list onto a 2D canvas.
+ * This file only records the facets into one Skia picture per frame: one
+ * native draw call, rather than a React element per polygon that React
+ * would have to reconcile sixty times a second.
  */
 
 export type { OverlayStyle };
 
 export interface BodyOverlayProps {
-  pose: TrackedPose | null;
-  /**
-   * The camera recovered from the frame. With one, the figure lands on the
-   * person; without one it is shown from a chosen angle instead, which is
-   * what the rig-only view does when there is no picture to land on.
-   */
-  camera?: FittedCamera | null;
-  /** how the camera frame maps onto this canvas */
-  viewport?: Viewport;
-  /** studio camera, used only when no fitted camera is supplied */
-  studio?: Camera;
+  pose: TrackedPose;
+  /** the camera recovered from the frame; the figure is projected through it */
+  camera: FittedCamera;
+  /** how the camera frame maps onto this canvas (crop and mirror) */
+  viewport: Viewport;
   severity?: SegmentSeverity;
   width: number;
   height: number;
   style?: OverlayStyle;
-  /** 0..1 how far to dim whatever is behind the figure; overrides the style */
-  scrim?: number;
-  /** dim the whole overlay — paused, or the detector has gone quiet */
+  /** dim the whole overlay — the set is paused */
   dimmed?: boolean;
 }
 
+const NO_SEVERITY: SegmentSeverity = {};
+
 export function BodyOverlay({
   pose,
-  camera = null,
+  camera,
   viewport,
-  studio = DEFAULT_CAMERA,
-  severity = {},
+  severity = NO_SEVERITY,
   width,
   height,
   style = 'solid',
-  scrim,
   dimmed = false,
 }: BodyOverlayProps) {
   const cfg = OVERLAY_STYLES[style];
 
   const facets = useMemo<Facet[]>(() => {
-    if (!pose || width <= 0 || height <= 0) return [];
+    if (width <= 0 || height <= 0) return [];
     const model = buildBody(pose.world, pose.proportions);
     if (model.solids.length === 0) return [];
-
-    const proj = camera
-      ? cameraProjector(camera, viewport)
-      : perspectiveProjector(studio, width, height);
-
-    return buildFacets(model.solids, proj, severity, {
+    return buildFacets(model.solids, cameraProjector(camera, viewport), severity, {
       fill: cfg.fill * (dimmed ? 0.55 : 1),
       edge: cfg.edge * (dimmed ? 0.5 : 1),
       lineScale: Math.max(0.75, Math.min(width, height) / 420),
-      lightWith: camera ? null : studio,
+      lightWith: null,
     });
-  }, [pose, camera, viewport, studio, severity, width, height, cfg, dimmed]);
+  }, [pose, camera, viewport, severity, width, height, cfg, dimmed]);
 
-  const paths = useMemo<{ path: SkPath; facet: Facet }[]>(
-    () =>
-      facets.map((f) => {
-        const p = Skia.Path.Make();
-        p.moveTo(f.pts[0]!.x, f.pts[0]!.y);
-        for (let i = 1; i < f.pts.length; i++) p.lineTo(f.pts[i]!.x, f.pts[i]!.y);
-        p.close();
-        return { path: p, facet: f };
-      }),
-    [facets],
+  const picture = useMemo<SkPicture | null>(
+    () => (facets.length > 0 ? record(facets, width, height, cfg.scrim) : null),
+    [facets, width, height, cfg.scrim],
   );
 
-  const veil = scrim ?? cfg.scrim;
-
+  if (picture === null) return null;
   return (
     <Canvas style={{ width, height }} pointerEvents="none">
-      {veil > 0 && paths.length > 0 ? (
-        <Rect x={0} y={0} width={width} height={height} color={`rgba(6, 7, 11, ${veil})`} />
-      ) : null}
-      <Group>
-        {paths.map(({ path, facet }, i) => (
-          <React.Fragment key={i}>
-            {facet.fill ? <Path path={path} style="fill" color={facet.fill} /> : null}
-            {facet.stroke ? (
-              <Path
-                path={path}
-                style="stroke"
-                strokeWidth={facet.strokeWidth}
-                strokeJoin="round"
-                color={facet.stroke}
-              />
-            ) : null}
-          </React.Fragment>
-        ))}
-      </Group>
+      <Picture picture={picture} />
     </Canvas>
   );
+}
+
+/** Trace the facets, far to near, into one picture. */
+function record(facets: Facet[], width: number, height: number, scrim: number): SkPicture {
+  const recorder = Skia.PictureRecorder();
+  const canvas = recorder.beginRecording(Skia.XYWHRect(0, 0, width, height));
+
+  // a light veil behind the figure keeps its colours readable over any gym
+  if (scrim > 0) {
+    const veil = Skia.Paint();
+    veil.setColor(Skia.Color(`rgba(6, 7, 11, ${scrim})`));
+    canvas.drawRect(Skia.XYWHRect(0, 0, width, height), veil);
+  }
+
+  const fill = Skia.Paint();
+  fill.setAntiAlias(true);
+  fill.setStyle(PaintStyle.Fill);
+  const edge = Skia.Paint();
+  edge.setAntiAlias(true);
+  edge.setStyle(PaintStyle.Stroke);
+  edge.setStrokeJoin(StrokeJoin.Round);
+
+  for (const f of facets) {
+    const path = Skia.Path.Make();
+    path.moveTo(f.pts[0]!.x, f.pts[0]!.y);
+    for (let i = 1; i < f.pts.length; i++) path.lineTo(f.pts[i]!.x, f.pts[i]!.y);
+    path.close();
+    if (f.fill) {
+      fill.setColor(Skia.Color(f.fill));
+      canvas.drawPath(path, fill);
+    }
+    if (f.stroke) {
+      edge.setColor(Skia.Color(f.stroke));
+      edge.setStrokeWidth(f.strokeWidth);
+      canvas.drawPath(path, edge);
+    }
+  }
+  return recorder.finishRecordingAsPicture();
 }

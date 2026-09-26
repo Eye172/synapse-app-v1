@@ -4,6 +4,7 @@ import { ScrollView, Switch, View } from 'react-native';
 
 import type { ExerciseSpec } from '@/src/engine/types';
 import { CameraPoseSource } from '@/src/sources/camera/CameraPoseSource';
+import { RIG_SUPPORTED } from '@/src/sources/udp/rigSupport';
 import { useConnectionStore } from '@/src/store/connectionStore';
 import { useSettingsStore } from '@/src/store/settingsStore';
 import { color, space } from '@/src/theme/tokens';
@@ -28,9 +29,9 @@ export interface TrainConfig {
 }
 
 /**
- * Arm the set: camera permission, record toggle + fixed-stop duration bar
- * (§2.5), and honest source status lines. The Rig comes first: without a
- * linked Rig the only way forward is to connect it.
+ * Arm the set: camera permission, lens, record toggle and optional auto-stop
+ * (§2.5), with honest source lines. Every set is measured by the camera; the
+ * Rig is optional where the build can reach one (never in a browser).
  */
 export function ArmStage({
   ex,
@@ -73,18 +74,20 @@ export function ArmStage({
         </AppText>
         <StatusLine k="GRADED BY" v={gradedBy} tint={gradedTint} />
         <StatusLine k="SHOWN AS" v={shownAs} tint={color.mesh} />
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <StatusLine
-            k="RIG · OPTIONAL"
-            v={mode.toUpperCase()}
-            tint={mode === 'linked' ? color.acid : mode === 'searching' ? color.warn : color.textLo}
-          />
-          {!rigLinked ? (
-            <PressableScale onPress={onConnect} accessibilityRole="button" accessibilityLabel="Connect the Rig">
-              <Chip label="CONNECT" tint={color.mesh} />
-            </PressableScale>
-          ) : null}
-        </View>
+        {RIG_SUPPORTED ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <StatusLine
+              k="RIG · OPTIONAL"
+              v={mode.toUpperCase()}
+              tint={mode === 'linked' ? color.acid : mode === 'searching' ? color.warn : color.textLo}
+            />
+            {!rigLinked ? (
+              <PressableScale onPress={onConnect} accessibilityRole="button" accessibilityLabel="Connect the Rig">
+                <Chip label="CONNECT" tint={color.mesh} />
+              </PressableScale>
+            ) : null}
+          </View>
+        ) : null}
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <StatusLine
             k="CAMERA"
@@ -177,7 +180,7 @@ export function ArmStage({
 
       <PrimaryButton
         title={cameraReady ? 'Begin positioning' : 'Allow the camera'}
-        sub={cameraReady ? 'THE GHOST FRAME WILL GUIDE YOU' : 'THE SET IS MEASURED FROM YOUR PICTURE'}
+        sub={cameraReady ? 'STAND WHERE THE CAMERA SEES ALL OF YOU' : 'THE SET IS MEASURED FROM YOUR PICTURE'}
         onPress={cameraReady ? onBegin : () => requestCam()}
       />
     </ScrollView>

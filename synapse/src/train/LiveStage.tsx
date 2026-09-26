@@ -22,8 +22,8 @@ import { useSettingsStore } from '@/src/store/settingsStore';
 import { glow } from '@/src/theme/glow';
 import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
-import { BodyOverlay } from '@/src/ui/BodyOverlay';
 import { CornerBrackets } from '@/src/ui/CornerBrackets';
+import { LiveBody } from '@/src/ui/LiveBody';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
 import { useBodyTracking } from '@/src/vision/useBodyTracking';
@@ -55,6 +55,13 @@ export interface LiveResult {
  * and owns the clip once it exists.
  * Must read like materials/deliverables/synapse-hud-mockup.html.
  */
+/**
+ * The data rail and fault chip start below this, so a safety banner (pinned
+ * under the status strip) never covers the numbers — on a short laptop
+ * window as on a tall phone.
+ */
+const RAIL_TOP_MIN = 164;
+
 /** What the HUD calls whatever is currently drawing the body. */
 const MESH_SOURCE_LABEL: Record<'sim' | 'camera' | 'rig', string> = {
   rig: 'RIG',
@@ -343,15 +350,10 @@ export function LiveStage({
   // goes on, graded from the camera alone, and the lifter is told
   const rigLinkLost = sources.rigLinked && linkMode !== 'linked';
 
-  // The camera path tracks, measures and places the body itself; the rig
-  // path has no picture to land on and is posed from a chosen angle
-  // instead. Both end up in the same renderer.
-  const tracking = useBodyTracking(subscribePose, {
-    width,
-    height,
-    mirrored: facing === 'front',
-    paused,
-  });
+  // The camera tracks, measures and places the body; the figure itself is
+  // redrawn every screen frame inside LiveBody, and this screen reads only
+  // the slow-lane status (placed or still solving) for its status strip.
+  const { tracker, status: tracking } = useBodyTracking(subscribePose);
 
   return (
     // The flow draws the camera behind this screen, so with one running the
@@ -364,17 +366,14 @@ export function LiveStage({
             grading (camera, plus the Rig when linked). Until the camera has
             placed it, nothing is drawn: the picture alone and SOLVING in the
             status strip, never a figure that is not standing on the lifter. */}
-        {tracking.aligned ? (
-          <BodyOverlay
-            pose={tracking.pose}
-            camera={tracking.camera}
-            viewport={tracking.viewport ?? undefined}
-            severity={frame?.severity}
-            width={width}
-            height={height}
-            dimmed={paused}
-          />
-        ) : null}
+        <LiveBody
+          tracker={tracker}
+          width={width}
+          height={height}
+          mirrored={facing === 'front'}
+          severity={frame?.severity}
+          paused={paused}
+        />
       </View>
 
       {/* The Rig dropped mid-set. The camera is still measuring, so the set
@@ -428,7 +427,7 @@ export function LiveStage({
             // whether the figure is standing on the lifter or still being
             // solved — the one link in the camera path the camera's own
             // telemetry cannot see
-            tracking.aligned ? 'BODY PLACED' : 'SOLVING',
+            tracking.placed ? 'BODY PLACED' : 'SOLVING',
             sources.rigLinked ? (rigLinkLost ? 'RIG LOST' : 'RIG') : null,
             cameraLive ? (cameraReady ? 'CAM LIVE' : 'CAM WAKING') : null,
             aiKey ? null : 'AI OFFLINE',
@@ -452,7 +451,7 @@ export function LiveStage({
       </View>
 
       {/* left data rail */}
-      <View style={{ position: 'absolute', left: 20, top: height * 0.2, gap: 14 }}>
+      <View style={{ position: 'absolute', left: 20, top: Math.max(height * 0.2, RAIL_TOP_MIN), gap: 14 }}>
         <StatReadout
           k="ANGLE"
           v={typeof primary === 'number' ? String(Math.round(primary)) : '—'}
@@ -476,7 +475,7 @@ export function LiveStage({
           style={{
             position: 'absolute',
             right: 20,
-            top: height * 0.24,
+            top: Math.max(height * 0.24, RAIL_TOP_MIN),
             borderWidth: 1,
             borderColor: fault.severity >= 1 ? color.error : color.warn,
             backgroundColor: fault.severity >= 1 ? 'rgba(255,59,92,0.12)' : 'rgba(255,194,75,0.10)',
@@ -506,7 +505,7 @@ export function LiveStage({
           style={{
             pointerEvents: 'none',
             position: 'absolute',
-            top: height * 0.16,
+            top: space.xl + 52,
             left: 30,
             right: 30,
             alignItems: 'center',

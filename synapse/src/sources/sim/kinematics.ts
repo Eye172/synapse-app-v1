@@ -424,7 +424,3 @@ export function generatePose(ex: ExerciseSpec, input: PoseGenInput): Landmark[] 
   return project(body, ex.view);
 }
 
-/** The "get into position" ghost target — the exercise's start pose, clean. */
-export function ghostPose(ex: ExerciseSpec): Landmark[] {
-  return generatePose(ex, { cyclePos: 0, faults: {}, wobble: 0 });
-}
