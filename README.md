@@ -138,6 +138,7 @@ Two traps, both of which fail with a message that points somewhere else:
 | Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only**. Sets end with **STOP**; auto-stop (15/30/60/90 s of lifting, pauses not counted) is optional and off by default | Opt-in human form review (the only path video would ever leave) |
 | **Camera pose on-device**: CameraX + MediaPipe Pose (`modules/pose-vision`), GPU with CPU fallback, one camera from position-lock to the last rep, a telemetry line at the bottom of the set screen (camera · detector · poses/s · latency) | |
 | **Developer mode**: sets without the Rig, measured by the camera (Profile → Developer) | |
+| **Same camera path in a laptop browser**: `npx expo start --web` runs the app with the webcam and MediaPipe web — see *Running the app in a laptop browser* | |
 | **Technique-grading seam** wired end to end: `SetEngine` calls the evaluator every frame, its severities tint the body, its finding is shown and spoken — see `HANDOFF.md` | |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup, dark + paper themes | Social, marketplace, Play Billing, iOS |
 
@@ -322,6 +323,75 @@ then `npm run harness` (clips + reference stills, :8099) or `npm run live`
 (laptop webcam, :8098). After changing app code, `npm run build` re-bundles it.
 Neither page has its own copy of the maths, which is the point.
 
+### Computer vision, inside — how each stage works and where to tune it
+
+The camera path is a chain of small, separately tested stages. Every number below is a named constant at the top of its file; each one's comment says why it has that value. Change them there and the tests next to the file tell you what you broke.
+
+**1. Detection** — `modules/pose-vision` (`PoseEngine.kt` on Android, `index.web.tsx` in a browser)
+MediaPipe Pose Landmarker, *full* model, one person, video/live-stream mode, about 15 detections a second. Each detection gives 33 landmarks in **two spaces**: image (normalized to the frame) and world (metres, origin between the hips). The frame is rotated upright but never mirrored. It runs on the GPU and falls back to the CPU if the GPU is refused. Confidence thresholds are 0.5 (`MIN_DETECTION`, `MIN_PRESENCE`, `MIN_TRACKING`).
+
+**2. Crossing into the app** — `src/sources/camera/poseVisionBridge.ts`
+The flat arrays become a `PoseObservation`. The axes are flipped once (y up, z toward the viewer), and every frame is stamped on the wall clock (`frameTime`; a stamp more than `MAX_CLOCK_SKEW_MS` = 5 s off is replaced). A malformed payload becomes *no pose*, never a wrong one.
+
+**3. Smoothing and prediction** — `src/vision/tracker.ts` (`PoseTracker`), `oneEuro.ts`
+Every joint in both spaces runs through a **One Euro filter**, whose cutoff rises with speed: heavy smoothing while the lifter holds still, almost none mid-rep. Image and world use separate settings (`IMAGE_FILTER`, `WORLD_FILTER`), because image points decide *where* the figure sits and world points decide its *shape*.
+- `VIS_GATE` 0.35 — below this visibility a detection is not evidence, and the last good value stands.
+- `HOLD_MS` 500 — a joint unseen for longer is dropped.
+- `MAX_PREDICT_MS` 55 — the pose is extrapolated up to this far ahead, so the figure keeps up with the screen between detections. Longer predictions overshoot at the bottom of a squat.
+- `sample(t)` returns the pose for the instant being drawn, with `coverage` (the share of joints seen) and `age`.
+
+**4. Bone lengths, two ways** — `src/vision/boneLengths.ts`, `proportions.ts`
+- *Placing* joints: `BoneLengths` smooths each bone over `TAU_MS` 600. `rigidify` (bone lock) then holds every limb to that length, so limbs do not stretch frame to frame. Left and right are measured separately.
+- *Sizing* the mannequin: `BodyMeasure` keeps each bone's longest honest reading, because foreshortening only ever shortens. It gives ground very slowly (`DECAY`). Readings are then reconciled with anatomy: close to the expected value they pass almost untouched, and far from it they are pulled back hard (`TOLERANCE` 0.5). A bone counts in full after `EVIDENCE_FRAMES` 15. Height adds `ANKLE_RISE` for the foot under the ankle. The result is `BodyProportions`: height, shoulder and hip width, trunk and limb lengths, and a `confidence`.
+
+**5. Solving the camera** — `src/vision/cameraFit.ts` (`fitCamera`)
+From the metric skeleton and where its joints landed in the picture, it recovers **the camera that took the frame**. There are three unknowns: distance to the hips and offset across and up. Focal length is not solved (one view cannot separate "small and close" from "large and far"), so it comes from the lens field of view (`hfovDeg` 65). The solve is Gauss-Newton over the full perspective model (6 passes) on 13 stable joints (`FIT_POINTS`: shoulders, elbows, wrists, hips, knees, ankles, nose), with a Huber loss (`HUBER` 24 px) so one bad joint cannot drag the fit. It returns `distance`, `tx`, `ty`, `focal` and a `residual` — the RMS miss in pixels.
+
+**6. Frame to screen** — `src/vision/viewport.ts`
+`coverViewport` maps frame pixels onto the screen the way the preview shows them: cropped to fill, and mirrored for the front camera. `landmarksToScreen` applies it to flat drawings.
+
+**7. Deciding to place the body** — `src/vision/useBodyTracking.ts`
+This hook ties stages 3–6 together for the live screen. A camera solve is accepted only when its residual is under `RESIDUAL_LIMIT` (6 % of the frame's short side). The figure is *placed on the person* (`aligned`) only when a solve exists and `coverage` > 0.2. Otherwise the live screen shows the same 3D figure from a fixed angle.
+
+**8. Building the mannequin** — `src/ui/bodyVolumes.ts` (`buildBody`)
+Solids are built in metres around the solved skeleton, sized from the measured proportions. Limbs taper and are oval, the chest and pelvis are boxes, and the joints are cubes. The head takes its orientation from the ear line and the nose (`MAX_HEAD_TILT`), and its size from the body's scale.
+
+**9. Colouring and drawing** — `src/ui/facets.ts`, `volume.ts`, `BodyOverlay.tsx`
+Each solid is split into faces. Faces pointing away are dropped, the rest are projected through the solved camera and sorted back to front. Each face is coloured by its segment's severity through `meshSeverityColor` (turquoise → amber → red), so the colour on the body is exactly `frame.severity` — the rule engine's and the technique evaluator's findings merged. Three styles are available (`OVERLAY_STYLES`: solid, study, contour). `BodyOverlay` draws the faces with Skia.
+
+**Where to look when something is off**
+
+| Symptom | First place to look |
+|---|---|
+| no figure at all | the telemetry line at the bottom of the set screen; then `coverage` / `aligned` in `useBodyTracking` |
+| figure beside the person, or moving the wrong way | `viewport.ts` (crop, mirror); the preview's scale type must be *cover* |
+| figure shaking | `IMAGE_FILTER` / `WORLD_FILTER` in `tracker.ts` (lower `minCutoff`) |
+| figure lagging through a rep | the same filters (raise `beta`); `MAX_PREDICT_MS` |
+| limbs stretching | bone lock (`rigidify`) and `BoneLengths` |
+| body too thin or too wide | `proportions.ts` (`TOLERANCE`, the anatomical table `H`) |
+| figure the right shape but too big or too small | `hfovDeg` in `cameraFit.ts` |
+| angles in grading look wrong | `isotropicLandmarks` in `engine/geometry.ts` |
+
+The browser pages in `harness/` show every stage's numbers live (solved distance, residual, measured height and bone lengths, joint miss against the detector), so a change can be judged on real footage before it reaches a phone.
+
+### Running the app in a laptop browser — the same camera path as the phone
+
+The web build of the app uses a browser implementation of the pose-vision module (`modules/pose-vision/index.web.tsx`), with the laptop webcam and MediaPipe's web runtime. It emits the same events as the Android view, so everything above it is the app's own code: the bridge, `CameraPoseSource`, the tracker, the engine, the live screen and the 3D overlay on the video.
+
+```bash
+cd synapse
+npx expo start --web --offline --max-workers 1
+```
+
+Open the URL it prints → pick an exercise → on the Arm screen press **Request** and allow the camera in the browser → **GRADED BY** reads `CAMERA · DEVELOPER MODE` → *Begin positioning* → step back until hips and knees are in frame. A development build is always in developer mode, so no Rig is needed.
+
+Differences from the phone, all deliberate:
+- **No recording** — the browser view reports `canRecord: false`.
+- **The MediaPipe runtime and model come from CDNs** (jsdelivr, Google storage), so the first run needs internet.
+- **The Arm screen asks for the camera through the browser**, not Android.
+
+`harness/` and `live/` are still useful for looking inside the pipeline stage by stage. The web app is where you check the product itself.
+
 ### Recording — one clip, from start to Review or to nothing
 
 `src/train/clipRecorder.ts` owns a clip's life, independent of any camera so it
@@ -341,6 +411,18 @@ no clip ever reached Review on Android.
 `src/technique/evaluator.ts` is where a lift is judged by the Rig + camera evaluator, and it is deliberately the one part not built here — see [`HANDOFF.md`](HANDOFF.md). The shipped default is `StubEvaluator`, which computes nothing **and says so** (`computed: false`); until a real one is installed, the built-in rule engine alone colours the body.
 
 What is already wired, so a real evaluator lights up on arrival: `SetEngine` calls it on every frame with the Rig's raw frame and the calibrated rig body, and resets it at the start of each set. The camera never reaches it: grading is the Rig's alone. Its per-segment severities are merged with the rule engine's (worse wins) and tint the body turquoise → amber → red. Its `worst` finding takes the fault chip, is spoken with a vibration through the same rate-limited coach as the rule engine, and at full severity is marked on the Review timeline. With a linked Rig and camera permission, the camera tracks the lifter only to draw the exoskeleton over their picture, coloured by the Rig's grading, so the lifter sees where the fault is on their own body. Output is sanitized first, and an evaluator that throws degrades to "not checked". `src/technique/example.test.ts` proves the whole path on a simulated set.
+
+**Lighting up the body from an evaluator** takes one line per finding. Use the ready-made commands in `src/technique/highlight.ts`:
+
+```ts
+return highlight(this.name)
+  .fault('leftLeg', 'Knee caving in', { cue: 'Knees out' })   // red, chip, spoken, Review mark
+  .drift('torso', 'Chest dropping')                           // amber, chip, spoken
+  .watch('rightShin')                                         // light tint, silent
+  .verdict();
+```
+
+Targets are segments or named body parts (`leftLeg`, `arms`, `spine`, …). The full table of commands and parts is in `HANDOFF.md` §4a.
 
 ### Diagnosing the Rig link
 
@@ -451,7 +533,7 @@ Data flows one way: **sources → engine → screens → renderer**. Each layer 
 | `sources/camera/` | Camera pose. `PoseDetector.ts` is the detector registry, `CameraPoseSource` is the source, and `poseVisionBridge.ts` turns native MediaPipe events into observations | `poseVisionBridge.ts` |
 | `sources/sim/` | A deterministic simulator of a lifter and a Rig, with fault injection. Used only by tests and `__DEV__` builds; it can never reach a tester's APK | `simTimeline.ts` |
 | `engine/` | **The truth.** `SetEngine` (`setSession.ts`) runs a set. For every pose frame it derives metrics, fuses them with the Rig, grades them against the exercise's rules, counts reps, calls the technique evaluator, and emits one `EngineFrame`. Pure TypeScript, fully unit-tested | `setSession.ts`, `types.ts` |
-| `technique/` | **The seam for technique grading.** See `HANDOFF.md` | `evaluator.ts` |
+| `technique/` | **The seam for technique grading.** `evaluator.ts` is the contract, `highlight.ts` gives ready-made commands for lighting up the 3D body (`.fault('leftLeg', …)`, `.drift`, `.watch`, `.measure`), and `example.test.ts` is a worked example. See `HANDOFF.md` | `evaluator.ts`, `highlight.ts` |
 | `vision/` | Camera-only maths: One Euro smoothing, bone lengths, body proportions, the per-frame camera solve, and the viewport mapping between frame and screen | `tracker.ts`, `useBodyTracking.ts` |
 | `train/` | The training flow's screens (select → tutorial → arm → position → live → review → report). Also `SetCamera` (one camera for the whole set), `ClipRecorder` (a clip's lifecycle) and `recording.ts` (ephemeral files) | `app/train.tsx`, then `LiveStage.tsx` |
 | `ui/` | Components and the renderer. `bodyVolumes.ts` builds solids in metres, `facets.ts` turns them into coloured faces, and `BodyOverlay` / `MeshView3D` / `MeshView` draw them | `facets.ts` |

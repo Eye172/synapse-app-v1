@@ -112,6 +112,49 @@ What happens to it, already implemented:
 **What colour means, in one place:** `src/theme/tokens.ts` → `meshSeverityColor(s)`: turquoise at 0, amber around 0.5, red at 1. You only return numbers; the renderers (`BodyOverlay` on the camera, `MeshView3D` for the Rig) paint each segment from them. Segment ids and the joints each covers are in `src/engine/skeleton.ts`.
 - Your output is **sanitized** before it is used: severities are clamped to 0…1, NaN values and unknown segment ids are dropped, and a `worst` without a label is ignored. If your evaluator throws, the frame falls back to "not checked". A bug in grading can't crash the screen or paint a wrong colour.
 
+## 4a. Ready-made commands for lighting up the body — `src/technique/highlight.ts`
+
+You don't have to build the verdict object by hand. Say what you found and return it:
+
+```ts
+import { highlight, notChecked } from './highlight';
+
+evaluate(input: TechniqueInput): TechniqueVerdict {
+  if (!input.rigBody) return notChecked(this.name);   // nothing to judge: body keeps the rule engine's colours
+
+  return highlight(this.name)
+    .fault('leftLeg', 'Knee caving in', { cue: 'Knees out' })  // red · chip · spoken + hard buzz · Review mark
+    .drift('torso', 'Chest dropping')                          // amber · chip · spoken
+    .watch('rightShin')                                        // light amber tint, nothing said
+    .clean('arms')                                             // checked and fine
+    .measure('rightLeg', inward, { ok: 0.05, fault: 0.25 }, 'Knee caving in')  // a number → a colour
+    .verdict();
+}
+```
+
+| Command | Severity | What the lifter sees |
+|---|---|---|
+| `.fault(target, label, { cue? })` | 1 | red; fault chip "FAULT"; spoken with a hard buzz; marked on the Review timeline |
+| `.drift(target, label, { cue? })` | 0.55 | amber; fault chip "DRIFT"; spoken |
+| `.watch(target)` | 0.3 | a tint toward amber; nothing said |
+| `.clean(target)` | 0 | turquoise; recorded as checked |
+| `.mark(target, severity, label?)` | any 0…1 | colour follows the number continuously |
+| `.measure(target, value, { ok, fault }, label?)` | linear from `ok` to `fault` | turns a measured error into a colour |
+| `notChecked(name)` | — | no change: "not checked", never "clean" |
+
+A **target** is a segment (`'leftThigh'`), a body part, or a list of either. The body parts are:
+
+| Part | Segments |
+|---|---|
+| `head` | head, neck |
+| `spine` | neck, torso, hips |
+| `trunk` | torso, hips |
+| `leftArm` / `rightArm` / `arms` | upper arm + forearm |
+| `leftLeg` / `rightLeg` / `legs` | thigh + shin |
+| `all` | every segment |
+
+`SEGMENTS_OF_NODE` maps each Rig sensor to the segment it measures. A `back` finding tints neck, torso and hips; a `leftLeg` finding tints the left thigh. Several marks on one segment keep the worst. The finding shown is the most severe mark that has a label. The same thresholds are exported as `SEVERITY.CLEAN / WATCH / DRIFT / FAULT`.
+
 ## 5. The worked example — start here
 
 **`synapse/src/technique/example.test.ts`** contains a complete evaluator, run
