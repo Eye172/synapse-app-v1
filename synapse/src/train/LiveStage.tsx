@@ -24,7 +24,7 @@ import { color, space } from '@/src/theme/tokens';
 import { AppText } from '@/src/ui/AppText';
 import { BodyOverlay } from '@/src/ui/BodyOverlay';
 import { CornerBrackets } from '@/src/ui/CornerBrackets';
-import { MeshView, type MeshFrame } from '@/src/ui/MeshView';
+import type { MeshFrame } from '@/src/ui/MeshView';
 import { MeshView3D } from '@/src/ui/MeshView3D';
 import { PressableScale } from '@/src/ui/PressableScale';
 import { StatReadout } from '@/src/ui/StatReadout';
@@ -217,17 +217,25 @@ export function LiveStage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ex, sources, aiKey]);
 
-  // ---- clock + duration cap ----
+  // ---- optional auto-stop ----
+  // Counts only time spent lifting: the old clock ran from the start of the
+  // set straight through every pause, so a paused set could end itself.
+  const activeMsRef = useRef(0);
   useEffect(() => {
+    if (config.durationSec === null) return undefined;
+    const cap = config.durationSec;
+    let last = Date.now();
     const iv = setInterval(() => {
-      if (paused) return;
-      const e = Math.floor((Date.now() - startedAtRef.current) / 1000);
+      const now = Date.now();
+      if (!paused) activeMsRef.current += now - last;
+      last = now;
+      const e = Math.floor(activeMsRef.current / 1000);
       setElapsed(e);
-      if (recordRequested && e >= config.durationSec) finish();
+      if (e >= cap) finish();
     }, 250);
     return () => clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paused, recordRequested, config.durationSec]);
+  }, [paused, config.durationSec]);
 
   // ---- recording lifecycle ----
   // The camera records and finalizes; this screen decides when, and owns the
@@ -237,7 +245,8 @@ export function LiveStage({
     if (!recordRequested || !canRecord || !cameraReady || recordingStartedRef.current) return;
     recordingStartedRef.current = true;
     setRecState('recording');
-    void camera.current?.startRecording(config.durationSec).then((started) => {
+    // with no auto-stop the clip runs until STOP; ten minutes is a storage guard
+    void camera.current?.startRecording(config.durationSec ?? 600).then((started) => {
       if (!started) setRecState('off');
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -307,8 +316,10 @@ export function LiveStage({
     return reps > 0 ? engineRef.current?.getSummary().tempoAdherence ?? null : null;
   }, [frame?.repCount]);
   const sym = frame?.metrics.symmetry ?? null;
-  const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
-  const ss = String(elapsed % 60).padStart(2, '0');
+  // shown only when the set will end itself: a countdown to that moment
+  const remaining = config.durationSec === null ? null : Math.max(0, config.durationSec - elapsed);
+  const clock =
+    remaining === null ? null : `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
   // The fault chip shows whichever grader found the worse problem: a rule
   // from the exercise spec, or the technique evaluator's own finding.
   const ruleFault =
@@ -359,22 +370,16 @@ export function LiveStage({
     // background has to let it through; without one, this is the void.
     <View style={{ flex: 1, backgroundColor: cameraLive ? 'transparent' : color.void }}>
       <View style={{ position: 'absolute', top: 0, left: 0 }}>
-        {/* Three cases, one renderer.
+        {/* Always a 3D figure, in one of two placements.
 
             With a camera that has been solved, the mannequin is built in
             metres around the lifter's own measurements and pushed back
             through the lens that saw them, so it lands on their body —
-            translucent, over a dimmed background, because the point is to
-            compare the model with the person and an opaque figure would
-            hide what it is commenting on.
+            translucent over the picture, coloured by the Rig's grading.
 
-            With the Rig linked, the same overlay is drawn — the camera only
-            places the exoskeleton on the lifter, and every colour on it comes
-            from the Rig's grading. Without a solved camera the Rig's own
-            figure is shown from a chosen angle instead.
-
-            And when the camera is running but the solve has not converged,
-            the flat skeleton is drawn rather than a solid figure planted
+            Until the camera has solved (or with no camera at all), the same
+            solids are shown from a fixed angle rather than planted on the
+            picture: a figure placed before the solve converges would sit
             confidently in the wrong place. */}
         {tracking.aligned ? (
           <BodyOverlay
@@ -386,10 +391,8 @@ export function LiveStage({
             height={height}
             dimmed={paused}
           />
-        ) : liveMeshSource === 'rig' ? (
-          <MeshView3D frame={meshFrame} width={width} height={height} dimmed={paused} />
         ) : (
-          <MeshView frame={meshFrame} width={width} height={height} dimmed={paused} />
+          <MeshView3D frame={meshFrame} width={width} height={height} dimmed={paused} />
         )}
       </View>
 
@@ -467,7 +470,7 @@ export function LiveStage({
             </View>
           ) : null}
           <AppText variant="nano" color={paused ? color.warn : color.textMid}>
-            {paused ? 'PAUSED' : `SET ${mm}:${ss}`}
+            {paused ? 'PAUSED' : clock === null ? 'LIVE' : `ENDS IN ${clock}`}
           </AppText>
         </View>
       </View>

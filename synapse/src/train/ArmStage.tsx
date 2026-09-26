@@ -19,7 +19,12 @@ export type SetDuration = (typeof DURATIONS)[number];
 
 export interface TrainConfig {
   record: boolean;
-  durationSec: SetDuration;
+  /**
+   * Auto-stop after this many seconds of lifting, or null to end the set by
+   * hand with STOP — the default, because a lifter finishes when the reps are
+   * done, not when a clock says so.
+   */
+  durationSec: SetDuration | null;
 }
 
 /**
@@ -121,21 +126,20 @@ export function ArmStage({
           />
         </View>
 
-        <View style={{ gap: 6, opacity: config.record && camGranted ? 1 : 0.35 }}>
+        <View style={{ gap: 6 }}>
           <AppText variant="nano" color={color.textLo}>
-            CLIP LENGTH · SET AUTO-ENDS AT CAP
+            {config.durationSec === null ? 'AUTO-STOP · OFF — END THE SET WITH STOP' : 'AUTO-STOP · THE SET ENDS ITSELF'}
           </AppText>
           <View style={{ flexDirection: 'row', gap: 6 }}>
-            {DURATIONS.map((d) => {
+            {([null, ...DURATIONS] as const).map((d) => {
               const active = config.durationSec === d;
               return (
                 <PressableScale
-                  key={d}
+                  key={d ?? 'off'}
                   style={{ flex: 1 }}
                   onPress={() => onConfig({ ...config, durationSec: d })}
                   accessibilityRole="button"
-                  accessibilityLabel={`${d} second clip`}
-                  disabled={!config.record || !camGranted}
+                  accessibilityLabel={d === null ? 'No auto-stop' : `Auto-stop after ${d} seconds`}
                 >
                   <View
                     style={{
@@ -148,7 +152,7 @@ export function ArmStage({
                     }}
                   >
                     <AppText variant="monoValue" color={active ? color.acid : color.textMid} style={{ fontSize: 16 }}>
-                      {d}s
+                      {d === null ? 'OFF' : `${d}s`}
                     </AppText>
                   </View>
                 </PressableScale>

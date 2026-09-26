@@ -47,7 +47,7 @@ export default function TrainScreen() {
   const initialEx = getExercise(exerciseParam ?? '') ?? null;
   const [ex, setEx] = useState<ExerciseSpec | null>(initialEx);
   const [stage, setStage] = useState<Stage>(initialEx ? 'loading' : 'select');
-  const [config, setConfig] = useState<TrainConfig>({ record: false, durationSec: 30 });
+  const [config, setConfig] = useState<TrainConfig>({ record: false, durationSec: null });
   const [camPerm] = useCameraPermissions();
   const camGranted = camPerm?.granted === true;
   const { width, height } = useWindowDimensions();
@@ -206,7 +206,7 @@ export default function TrainScreen() {
         return (
           <ReviewStage
             clip={clipRef.current}
-            durationSec={summary?.durationSec ?? config.durationSec}
+            durationSec={summary?.durationSec ?? config.durationSec ?? 0}
             markers={markers}
             onContinue={() => setStage('report')}
           />
