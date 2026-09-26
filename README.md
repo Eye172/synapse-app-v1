@@ -31,7 +31,7 @@ simulator stands in for both, so the full training loop runs without hardware.
 
 ## There is no demo mode
 
-Synapse grades what its sensors can actually see. If neither the Rig nor the camera is available, a set **does not start** — the app says `NOTHING TO MEASURE WITH` and offers to connect. If the Rig drops mid-set, the Mesh freezes and a full-width `RIG LINK LOST` banner says the set is no longer being graded.
+**The Rig comes first.** A set is graded from the Rig's IMUs, so without a linked Rig it **does not start**: the Arm screen's only button is *Connect the Rig* (and a set begun anyway lands on `RIG NOT LINKED`). The camera is optional and never grades: it only draws the exoskeleton over the lifter's picture, coloured by the Rig's grading, to show where the fault is. If the Rig drops mid-set, the Mesh freezes and a full-width `RIG LINK LOST` banner says the set is no longer being graded.
 
 This is a product decision, not a missing feature. A form coach that animates a plausible body while measuring nothing is worse than no coach: it teaches the lifter to trust it right up until the rep that hurts them. Every skeleton on screen is drawn from live sensor data or it is not drawn.
 
@@ -45,7 +45,7 @@ npm install
 npx expo start --offline        # add --max-workers 1 on low-RAM machines
 ```
 
-Press **`a`** for a connected Android device/emulator, **`w`** for the browser preview. To exercise the full loop you need a source: a Rig on the hotspot, a camera-equipped device, or a dev build (where the simulator stands in). To feed the app real packets without hardware:
+Press **`a`** for a connected Android device/emulator, **`w`** for the browser preview. To exercise the full loop you need a Rig on the hotspot, or a dev build (where the simulator stands in for it). To feed the app real packets without hardware:
 
 ```bash
 node scripts/send-test-packet.js <phone-ip> --stream
@@ -412,7 +412,7 @@ Data flows one way: **sources → engine → screens → renderer**. Each layer 
 
 | Folder | Responsibility | Start with |
 |---|---|---|
-| `sources/` | **Where data comes from.** Each source implements `PoseSource` or `SensorSource` from `sources/types.ts`. `provider.ts` picks the sources for a set: a linked Rig first, then the camera, then (dev builds only) the simulator. If none is available, no set starts | `provider.ts` |
+| `sources/` | **Where data comes from.** Each source implements `PoseSource` or `SensorSource` from `sources/types.ts`. `provider.ts` picks the sources for a set: the linked Rig grades it; the camera, if allowed, only shows the exoskeleton over the picture. Without a Rig no set starts (dev builds use the simulator) | `provider.ts` |
 | `sources/udp/` | The Rig link. `protocol.ts` parses every wire format and treats all input as untrusted. `UdpSensorSource` owns the socket and the link state. `rigLink.ts` holds the app-wide link and calibration. `RigPoseSource` turns rig frames into a body. `firmware.ts` holds the Rig's fixed network constants | `protocol.ts` |
 | `sources/camera/` | Camera pose. `PoseDetector.ts` is the detector registry, `CameraPoseSource` is the source, and `poseVisionBridge.ts` turns native MediaPipe events into observations | `poseVisionBridge.ts` |
 | `sources/sim/` | A deterministic simulator of a lifter and a Rig, with fault injection. Used only by tests and `__DEV__` builds; it can never reach a tester's APK | `simTimeline.ts` |

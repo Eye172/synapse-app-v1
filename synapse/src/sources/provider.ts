@@ -11,9 +11,13 @@ import { rigLink, storedCalibration } from './udp/rigLink';
 import type { PoseSource, SensorSource } from './types';
 
 /**
- * Chooses the set's instrument in exactly one place (§2.6): the linked Rig
- * first — five IMUs place the whole body — then the camera. If neither can
- * measure, there is no set. Nothing is substituted for a missing sensor.
+ * Chooses the set's instrument in exactly one place (§2.6).
+ *
+ * The Rig is the instrument: connect it first, then train. Its five IMUs are
+ * what the set is graded from. The camera is optional and only shows — it
+ * places the exoskeleton over the lifter's picture so the fault is visible on
+ * their body — and never grades. With no linked Rig there is no set; a
+ * development build substitutes the simulator, a tester's build never does.
  */
 export interface SourceBundle {
   /** what draws the body and drives the engine */
@@ -39,17 +43,13 @@ export interface SourceBundle {
   dispose(): void;
 }
 
-/**
- * Is there anything that can actually measure a set right now?
- *
- * A shipped build answers this with hardware only. The simulator exists for
- * tests and for development builds; it is not a product feature, and a user
- * is never offered a pretend workout.
- */
-export function hasLiveSource(camGranted: boolean): boolean {
-  if (useConnectionStore.getState().mode === 'linked' && rigLink.active) return true;
-  if (camGranted && CameraPoseSource.available()) return true;
-  return __DEV__;
+/** Can a set start right now? Only with a linked Rig (or the simulator, in a dev build). */
+export function canStartSet(): boolean {
+  return rigIsLinked() || __DEV__;
+}
+
+function rigIsLinked(): boolean {
+  return useConnectionStore.getState().mode === 'linked' && rigLink.active !== null;
 }
 
 export function createSetSources(
@@ -58,9 +58,8 @@ export function createSetSources(
     camGranted: boolean;
   },
 ): SourceBundle | null {
-  // A linked Rig is the primary instrument: five IMUs place the whole body,
-  // so it both grades and draws.
-  const rigLive = useConnectionStore.getState().mode === 'linked' ? rigLink.active : null;
+  // the linked Rig grades the set and, without a camera, draws the body
+  const rigLive = rigIsLinked() ? rigLink.active : null;
   const calibration = rigLive ? storedCalibration() : new RigCalibration();
   const cameraViable = opts.camGranted && CameraPoseSource.available();
 
@@ -89,10 +88,6 @@ export function createSetSources(
       companionCamera = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
       camera = companionCamera;
     }
-  } else if (cameraViable) {
-    pose = new CameraPoseSource({ hasCameraPermission: opts.camGranted });
-    poseOrigin = 'camera';
-    camera = pose;
   } else if (simPose) {
     pose = simPose;
     poseOrigin = 'sim';
@@ -101,7 +96,7 @@ export function createSetSources(
     return null;
   }
 
-  const sensor: SensorSource | null = rigLive ?? (cameraViable ? null : simSensor);
+  const sensor: SensorSource | null = rigLive ?? simSensor;
   const ownsSensor = rigLive === null;
 
   return {
@@ -110,7 +105,7 @@ export function createSetSources(
     sensor,
     ownsSensor,
     calibration,
-    poseIsReal: rigLive !== null || cameraViable,
+    poseIsReal: rigLive !== null,
     poseOrigin,
     startSet() {
       // rep zero starts a beat after the live screen mounts

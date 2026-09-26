@@ -119,6 +119,11 @@ export default function TrainScreen() {
     else router.replace('/');
   };
 
+  const openConnect = () => {
+    close();
+    router.push('/connect');
+  };
+
   const showClose = stage !== 'live' && stage !== 'position';
 
   const cameraShown = (stage === 'position' || stage === 'live') && camGranted && !cameraFailed;
@@ -157,20 +162,17 @@ export default function TrainScreen() {
         return ex ? <TutorialStage ex={ex} onContinue={() => setStage('arm')} /> : null;
       case 'arm':
         return ex ? (
-          <ArmStage ex={ex} config={config} onConfig={setConfig} onBegin={beginPositioning} />
+          <ArmStage ex={ex} config={config} onConfig={setConfig} onBegin={beginPositioning} onConnect={openConnect} />
         ) : null;
       case 'noSource':
         return (
           <View style={{ flex: 1, justifyContent: 'center', paddingHorizontal: space.gutter, gap: space.md }}>
             <EmptyState
-              code="NOTHING TO MEASURE WITH"
+              code="RIG NOT LINKED"
               title="Connect your Rig"
-              body="Synapse grades what its sensors can see. Link the Rig — or allow the camera — and the set can begin."
+              body="The Rig grades every rep, so it comes first. Link it, then start the set. The camera is optional: it only shows the exoskeleton over your picture."
               actionTitle="Connect the Rig"
-              onAction={() => {
-                close();
-                router.push('/connect');
-              }}
+              onAction={openConnect}
               tone="acid"
             />
             <PressableScale onPress={() => setStage('arm')} accessibilityRole="button" accessibilityLabel="Back">

@@ -76,7 +76,7 @@ exoskeleton, so the lifter sees *where* the fault is, on their own body:
 |---|---|---|
 | Rig linked + camera allowed | the exoskeleton over the camera picture | the Rig: rule engine + your evaluator |
 | Rig linked, no camera | the Rig's own 3D figure | the same |
-| camera only, no Rig | the exoskeleton over the camera picture | the rule engine on camera angles; your evaluator gets no Rig data and should return `computed: false` |
+| no Rig | nothing: a set does not start until the Rig is linked | — |
 
 The wire format the firmware sends today is
 `{"back":[r,i,j,k], "leftArm":[…], "leftLeg":[…], "rightArm":[…], "rightLeg":[…]}`.

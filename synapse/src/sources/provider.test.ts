@@ -2,7 +2,7 @@ import { EXERCISES } from '@/src/data/exercises';
 import { useConnectionStore } from '@/src/store/connectionStore';
 
 import { CameraPoseSource } from './camera/CameraPoseSource';
-import { createSetSources, hasLiveSource } from './provider';
+import { canStartSet, createSetSources } from './provider';
 import { rigLink } from './udp/rigLink';
 
 /**
@@ -34,34 +34,34 @@ describe('source selection in a release build', () => {
     jest.restoreAllMocks();
   });
 
-  it('reports nothing to measure with when neither Rig nor camera is there', () => {
-    expect(hasLiveSource(false)).toBe(false);
+  it('refuses a set with no Rig linked', () => {
+    expect(canStartSet()).toBe(false);
     expect(createSetSources(squat, { camGranted: false })).toBeNull();
   });
 
-  it('refuses even with camera permission granted but no detector behind it', () => {
-    // permission is not capability — a granted camera with no pose landmarker
-    // cannot place a body, and pretending otherwise is the exact failure mode
-    // this test exists to prevent
-    expect(hasLiveSource(true)).toBe(false);
+  it('refuses a camera-only set, even with a working detector', () => {
+    // the Rig comes first: the camera only shows, it never grades a set alone
+    (CameraPoseSource.available as jest.Mock).mockReturnValue(true);
+    expect(canStartSet()).toBe(false);
     expect(createSetSources(squat, { camGranted: true })).toBeNull();
   });
 
   it('refuses when the app thinks it is linked but the socket is gone', () => {
     useConnectionStore.setState({ mode: 'linked' });
-    expect(hasLiveSource(false)).toBe(false);
+    expect(canStartSet()).toBe(false);
     expect(createSetSources(squat, { camGranted: false })).toBeNull();
   });
 
-  it('draws from the camera when a real detector is present', () => {
-    (CameraPoseSource.available as jest.Mock).mockReturnValue(true);
-    const bundle = createSetSources(squat, { camGranted: true });
-    expect(bundle).not.toBeNull();
-    expect(bundle!.poseOrigin).toBe('camera');
-    expect(bundle!.poseIsReal).toBe(true);
-    // no sensor stands in for the Rig — the camera grades what it can and the
-    // rest reports NO DATA
-    expect(bundle!.sensor).toBeNull();
+  it('grades from the Rig and draws its own figure when there is no camera', () => {
+    useConnectionStore.setState({ mode: 'linked' });
+    const fakeRig = { onFrame: () => () => {}, onStatus: () => () => {}, status: 'active' };
+    (jest.spyOn(rigLink, 'active', 'get') as jest.SpyInstance).mockReturnValue(fakeRig);
+
+    expect(canStartSet()).toBe(true);
+    const bundle = createSetSources(squat, { camGranted: false });
+    expect(bundle!.poseOrigin).toBe('rig');
+    expect(bundle!.sensor).toBe(fakeRig);
+    expect(bundle!.camera).toBeNull();
     bundle!.dispose();
   });
 

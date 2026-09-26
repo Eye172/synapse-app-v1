@@ -24,18 +24,22 @@ export interface TrainConfig {
 
 /**
  * Arm the set: camera permission, record toggle + fixed-stop duration bar
- * (§2.5), and honest source status lines.
+ * (§2.5), and honest source status lines. The Rig comes first: without a
+ * linked Rig the only way forward is to connect it.
  */
 export function ArmStage({
   ex,
   config,
   onConfig,
   onBegin,
+  onConnect,
 }: {
   ex: ExerciseSpec;
   config: TrainConfig;
   onConfig: (c: TrainConfig) => void;
   onBegin: () => void;
+  /** open the Connect screen — the only action offered until the Rig links */
+  onConnect: () => void;
 }) {
   const [camPerm, requestCam] = useCameraPermissions();
   const mode = useConnectionStore((s) => s.mode);
@@ -43,14 +47,13 @@ export function ArmStage({
   const facing = useSettingsStore((s) => s.cameraFacing);
   const setSetting = useSettingsStore((s) => s.set);
   const camDenied = camPerm?.granted === false && camPerm?.canAskAgain === false;
-  // Granted is not the same as measuring. A build without the pose detector
-  // can show the camera but cannot place a body from it, and this line is
-  // where the wearer decides whether a set can start — it must not promise a
-  // source that will measure nothing.
-  const cameraMeasures = camGranted && CameraPoseSource.available();
-  const meshSource =
-    mode === 'linked' ? 'RIG · FULL BODY' : cameraMeasures ? 'CAMERA' : camGranted ? 'CAMERA · NO DETECTOR' : 'NO SOURCE';
-  const meshTint = mode === 'linked' || cameraMeasures ? color.mesh : camGranted ? color.warn : color.textLo;
+  const rigLinked = mode === 'linked';
+  // the camera only shows: with a detector it lays the exoskeleton over the
+  // picture, without one the Rig's own figure is drawn instead
+  const cameraOverlay = camGranted && CameraPoseSource.available();
+  const gradedBy = rigLinked ? 'RIG · FULL BODY' : __DEV__ ? 'SIMULATOR · DEV BUILD' : 'CONNECT THE RIG FIRST';
+  const gradedTint = rigLinked ? color.mesh : __DEV__ ? color.warn : color.error;
+  const shownAs = cameraOverlay ? 'EXOSKELETON OVER CAMERA' : 'RIG FIGURE';
 
   return (
     <ScrollView contentContainerStyle={{ paddingHorizontal: space.gutter, paddingBottom: 48, gap: space.sm }} showsVerticalScrollIndicator={false}>
@@ -63,7 +66,8 @@ export function ArmStage({
         <AppText variant="nano" color={color.textLo}>
           SOURCES
         </AppText>
-        <StatusLine k="MESH" v={meshSource} tint={meshTint} />
+        <StatusLine k="GRADED BY" v={gradedBy} tint={gradedTint} />
+        <StatusLine k="SHOWN AS" v={shownAs} tint={color.mesh} />
         <StatusLine
           k="RIG"
           v={mode.toUpperCase()}
@@ -160,7 +164,11 @@ export function ArmStage({
         </AppText>
       ) : null}
 
-      <PrimaryButton title="Begin positioning" sub="THE GHOST FRAME WILL GUIDE YOU" onPress={onBegin} />
+      {rigLinked || __DEV__ ? (
+        <PrimaryButton title="Begin positioning" sub="THE GHOST FRAME WILL GUIDE YOU" onPress={onBegin} />
+      ) : (
+        <PrimaryButton title="Connect the Rig" sub="THE RIG FIRST · THEN THE SET" onPress={onConnect} />
+      )}
     </ScrollView>
   );
 }
