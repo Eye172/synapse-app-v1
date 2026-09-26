@@ -33,6 +33,8 @@ pages pick up the new code.
 To build an APK yourself, see **Build the APK locally** in `README.md`. To give a
 build to a tester, run the GitHub Actions workflow. Every run publishes a Release.
 
+**No Rig to hand?** Turn on developer mode on the phone (**Profile → DEVELOPER → "Sets without the Rig"**) to run a set from the camera alone. A development build is always in this mode. It exercises the camera, tracking and overlay; your evaluator still receives `rigBody: null` there, so test it against the simulator (section 5).
+
 ## 2. Where your code goes
 
 **One file is the seam: `synapse/src/technique/evaluator.ts`.**

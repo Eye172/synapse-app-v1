@@ -37,6 +37,37 @@ This is a product decision, not a missing feature. A form coach that animates a 
 
 A simulator does exist — it drives the test suite and development builds, gated behind `__DEV__` so it is absent from any APK a user installs.
 
+The one exception is **developer mode** (below): a switch that lets a set start without the Rig, measured by the camera alone, so the camera path can be tested on a phone with nothing strapped on. It is off in an installed APK until someone turns it on.
+
+## Developer mode — a set with no Rig
+
+**What it is.** A set measured and drawn entirely from the phone's camera: the lifter sees their own picture, with the 3D mannequin tracked onto their body in real time (MediaPipe pose → bone lengths → camera solve → solids built in metres), coloured by the rule engine's grading of that pose. It is the laptop `live/` page, running inside the app.
+
+**How to turn it on.**
+
+| Build | Developer mode |
+|---|---|
+| Development build (`npx expo start`, `__DEV__` true) | always on |
+| Installed APK (release) | **Profile → DEVELOPER → "Sets without the Rig"** |
+
+Then: pick an exercise → on the Arm screen grant the camera → **GRADED BY** reads `CAMERA · DEVELOPER MODE` → *Begin positioning* → step back until hips and knees are in frame.
+
+**Which source runs** (`synapse/src/sources/provider.ts → createSetSources`):
+
+| Situation | Grades the set | Draws the body |
+|---|---|---|
+| Rig linked, camera allowed | the Rig | 3D mannequin on the camera picture, coloured by the Rig |
+| Rig linked, no camera | the Rig | the Rig's 3D figure from a fixed angle |
+| No Rig, developer mode, camera with a detector | the rule engine, from the camera pose | 3D mannequin on the camera picture |
+| No Rig, development build, no detector (web preview, Expo Go) | the simulator | 3D figure from a fixed angle |
+| No Rig, developer mode off | — the set does not start; the Arm screen offers *Connect the Rig* | — |
+
+`developerMode()` in `provider.ts` is the single switch (`__DEV__ || settings.devSkipRig`); `canStartSet()` and the Arm screen both read it. Tests for every row above live in `src/sources/provider.test.ts`.
+
+**What it is not.** Developer mode does not make the camera a substitute for the Rig in a shipped product: technique grading by the evaluator still takes the Rig's data (`HANDOFF.md`). It exists so the camera, detector, tracking and overlay can be exercised on a real phone.
+
+**Where it cannot work.** The web preview and Expo Go have no native detector, so there the simulator stands in. The camera path needs an APK built with `modules/pose-vision` — a local build (see *Build the APK locally*) or a CI build.
+
 ### Run it
 
 ```bash
@@ -101,13 +132,16 @@ Two traps, both of which fail with a message that points somewhere else:
 |---|---|
 | Full training loop: select → tutorial → arm → position-lock → live set → ephemeral review → report | BLE transport + auto-pairing |
 | Deterministic **form-rule engine**: continuous severity grading, safety alerts, hysteresis rep counting, tempo & symmetry | Per-joint quaternions (a second IMU below each knee/elbow) |
-| **The Mesh**: solid, perspective-projected body where the Rig draws it — a box per segment, tinted by that segment's own severity, with unsensed limbs left as open frames; flat overlay skeleton over camera video |  Cloud accounts, program sync, coach-shared programs |
+| **The Mesh, always 3D**: with a solved camera, a mannequin built in metres from the lifter's own measurements is placed on their body over the live picture; otherwise the same solids are shown from a fixed angle. Every segment is tinted by its own severity, turquoise → amber → red |  Cloud accounts, program sync, coach-shared programs |
 | **Rig link**: UDP `:1234`, five-node quaternion protocol v2 (three wire forms) + legacy payloads, connect wizard, per-node calibration | Real-time interruptible voice coaching |
 | **AI Coach**: RuleCoach always-on (offline); optional Claude coach (`claude-haiku-4-5` in-set ≤8 words, `claude-sonnet-5` debrief) with hard no-fabrication guards | PT / clinical mode |
-| Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only** | Opt-in human form review (the only path video would ever leave) |
+| Ephemeral recording (app-private cache, hard-deleted on leave/background), history = **metrics only**. Sets end with **STOP**; auto-stop (15/30/60/90 s of lifting, pauses not counted) is optional and off by default | Opt-in human form review (the only path video would ever leave) |
+| **Camera pose on-device**: CameraX + MediaPipe Pose (`modules/pose-vision`), GPU with CPU fallback, one camera from position-lock to the last rep, a telemetry line at the bottom of the set screen (camera · detector · poses/s · latency) | |
+| **Developer mode**: sets without the Rig, measured by the camera (Profile → Developer) | |
+| **Technique-grading seam** wired end to end: `SetEngine` calls the evaluator every frame, its severities tint the body, its finding is shown and spoken — see `HANDOFF.md` | |
 | Progress trends, achievements, kit manager, onboarding, on-phone sensor setup, dark + paper themes | Social, marketplace, Play Billing, iOS |
 
-**Honest limits of this machine's verification:** everything above is exercised by ~390 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps — including what the solid Mesh costs per frame, which is the one number that decides whether it ships as the default. The seams for all four are built, guarded, and unit-tested.
+**Honest limits of this machine's verification:** everything above is exercised by ~390 unit/integration tests plus a full browser walk of every screen; the Android Hermes bundle compiles clean. The release APK also builds locally (arm64, all native libraries 16 KB-aligned). What could **not** be verified here (no Android device/emulator on the build machine): a physical Rig on the wire (the emulator covers the protocol end-to-end, but not radio behaviour), on-device camera pose, TTS/haptics feel, and on-device fps — including what the solid Mesh costs per frame, which is the one number that decides whether it ships as the default. The seams for all four are built, guarded, and unit-tested.
 
 ---
 
