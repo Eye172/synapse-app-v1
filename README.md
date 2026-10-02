@@ -1,5 +1,12 @@
 # SYNAPSE — every rep, supervised
 
+**Android application · Computer vision and motion analysis · 2026–present**
+
+**Application developer:** [Shakhnazar Akhmer](https://github.com/Eye172), working within the Synapse team on the training interface and native camera integrations. The application uses React Native, Expo and TypeScript, with Kotlin/CameraX and MediaPipe for pose tracking. The optional five-IMU rig communicates over Wi-Fi/UDP.
+
+This repository covers the software prototype, build instructions and test workflow. Hardware integration and field evaluation are ongoing. Start with the developer quick start below; camera and sensor behavior varies by platform and build.
+
+
 > **Выпустить приложение и отдать тестировщику → [ЗАПУСК.md](%D0%97%D0%90%D0%9F%D0%A3%D0%A1%D0%9A.md)** (пошагово, на русском).
 > Инструкция для самого тестировщика → [TESTING.md](TESTING.md).
 
